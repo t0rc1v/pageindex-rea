@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Source_Serif_4 } from "next/font/google";
 import "./globals.css";
 
@@ -16,6 +16,18 @@ const sourceSerif = Source_Serif_4({
   variable: "--font-source-serif",
   subsets: ["latin"],
 });
+
+/**
+ * Without an explicit viewport export Next emits no `<meta name="viewport">`,
+ * so mobile browsers fall back to a ~980 px layout viewport and every
+ * breakpoint above `sm` fires on a phone.
+ */
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#f7f5f1",
+};
 
 export const metadata: Metadata = {
   title: "PageIndex Reader",
