@@ -32,16 +32,25 @@ library.
   and **Open page ↗**.
 - **Document panel** — one tab per document, resizable on desktop, a bottom-sheet
   viewer on phones; page image ↔ OCR text toggle, page navigation, `Document info`
-  (pages, uploaded, description), remembers the last page per document.
-- **Message actions** — copy, **Download** (Markdown, or Print → Save as PDF),
-  Regenerate, and edit-and-resend on a question. Tables copy/download as
-  Markdown/CSV; code blocks copy.
+  (pages, uploaded, description), remembers the last page per document, and
+  **Add page to chat** pins a page into the next question.
+- **Message actions** — copy, **Download** (Markdown, Word `.docx`, PDF, or Print),
+  Regenerate with a **branch control** that keeps the previous answer, thumbs, and
+  edit-and-resend on a question. Tables copy as Markdown/TSV or download CSV/MD;
+  code blocks copy; **Mermaid diagrams** render and export as SVG/PNG/MMD; figures
+  download or copy their link.
 - **Document reader** — the PageIndex tree as a navigable outline, page text as
   markdown (tables, figures), rendered page images with block highlight, keyboard
   paging.
-- **Library** — documents and workspace folders, drag-and-drop upload
-  (PDF, Word, PowerPoint, CSV, Markdown, TXT, or a `.zip` bundle), live indexing
+- **Library** — documents and workspace folders, drag-and-drop upload with
+  per-file progress (PDF, Word, PowerPoint, CSV, Markdown, TXT, or a `.zip`
+  bundle whose per-entry results are reported), content sniffing so a renamed
+  file is rejected before indexing, grid ⇄ list view, rename/describe, live
   status, filtering, select-many → ask.
+- **Appearance** — light/dark/system theme, and a transcript that can switch
+  between the serif reading identity and the official's sans column.
+- **First run** — onboarding with a bundled sample document, so a cited answer
+  works before any upload.
 - **Server-side key** — the PageIndex API key never reaches the browser.
 
 ---
@@ -149,6 +158,16 @@ PAGEINDEX_API_URL=http://127.0.0.1:4319 PAGEINDEX_API_KEY=test-key pnpm dev
 `next build` and `next dev` share `.next`: stop the dev server before building, or
 the production output is clobbered mid-build and `next start` serves 404s for the
 CSS/chunks (seen while verifying this app).
+
+### Tests
+
+```bash
+pnpm test        # vitest: citation grammar, SSE translation, exports (real PDF)
+pnpm test:e2e    # playwright against the mock API, using your installed Chrome
+```
+
+The e2e suite starts the mock and a production server on port 3100 itself; it
+needs no API key and no browser download.
 
 ---
 

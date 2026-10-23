@@ -522,3 +522,64 @@ feedback capture · observability backend.
 | Public Explore / follow | No endpoint for public packs or collections. |
 | Folder move | `PUT /doc/{id}/metadata` is documented; a folder move is not. |
 | Reasoning tokens | The managed lane streams no thinking — our `Thought for Ns` is elapsed time, not a reasoning trace. |
+
+### 9.10 Backlog A — delivered
+
+Every item below needs neither storage/auth/billing nor an API the Cloud service
+withholds. Line references point at the commit that added it.
+
+**Chat**
+
+| # | Item | Where |
+| --- | --- | --- |
+| 1 | Response variants + branch control | `use-chat.ts` keeps `runs[]` per turn; `message-actions.tsx` renders `‹ 2/3 ›`, visible whenever more than one run exists |
+| 2 | Artifact menu completion | `markdown.tsx` (TSV copy, MD download, image save/link), `markdown-mermaid.tsx` (lazy Mermaid + SVG/PNG/MMD export) |
+| 3 | Export formats | `chat-export.ts`: `exportDocx` (real OOXML via `docx`) and `exportPdf` (jsPDF text layout) |
+| 4 | Citation variants | `citation-card.tsx`: figure/table citations are cropped from the page render and labelled "Cited figure" / "Cited table" |
+| 5 | Typewriter reveal | `use-typewriter.ts`, applied to the *stable* text only |
+| 6 | Attachment card above the question | `turn.docs` snapshot rendered above the bubble |
+| 7 | Add page to chat | `document-panel.tsx` → `addPageToChat` → `/api/chat` system preamble |
+| 8 | Local feedback | thumbs on the message row, persisted per turn |
+
+**Documents**
+
+| # | Item | Where |
+| --- | --- | --- |
+| 9 | Grid ⇄ list toggle | `library-view.tsx`, persisted with `useLocalFlag` |
+| 10 | Rename / description | `PATCH /api/docs/:id` → `PUT /doc/{id}/metadata`; `RenameDialog` |
+| 11 | ZIP per-entry results | `submitDocument` returns the API body; `summarizeEntries` toasts "n of m queued" |
+| 12 | Per-file upload progress | `apiUploadWithProgress` (XHR), percentage in the pending row |
+
+**Shell**
+
+| # | Item | Where |
+| --- | --- | --- |
+| 13 | First-run onboarding + sample | `onboarding.tsx` + `public/sample/getting-started.md` (uploaded through the normal path) |
+| 14 | Toasts + AlertDialog | `sonner` Toaster in `providers.tsx`; `ConfirmProvider` replaces all `window.confirm/alert` |
+| 15 | Settings hub | `settings-view.tsx`: sticky section nav (Appearance / Connection / Chat lane / Conversations / Shortcuts) |
+| 16 | Shortcut parity | `⌘K` composer focus, `⌘B` sidebar, arrows in the reader, `Esc` everywhere |
+
+**Craft**
+
+| # | Item | Where |
+| --- | --- | --- |
+| 17 | Motion pass | `pi-enter` / `pi-sheet-in` in `globals.css`; panel + collapsible transitions |
+| 18 | Composer parity | 145 px card, 16 px radius, circular send/stop |
+| 19 | Tests | `vitest`: citations, streaming grammar, markdown export, **real jsPDF output**; `playwright`: steps → sources → branch → citation → appearance |
+
+**Decision items now switchable rather than forced**
+
+| # | Item | Where |
+| --- | --- | --- |
+| 20 | Dark theme | token overrides under `.dark` in `globals.css` |
+| 21–23 | Density / transcript / full parity | Settings → Appearance (`serif` vs `sans`, comfortable vs compact) so the reading identity stays the default while parity is one click away |
+
+**Platform**
+
+| # | Item | Where |
+| --- | --- | --- |
+| 25 | Upload content sniffing | `sniffContainer` in `/api/upload` compares magic bytes with the claimed extension |
+| 26 | Query layer | `useFetch` re-implemented on TanStack Query (shared cache, invalidation, `refetchInterval`), no call-site churn |
+
+**Not delivered:** nothing in this batch. Playwright runs against the installed
+Chrome (`channel: "chrome"`) so no browser download is required.
