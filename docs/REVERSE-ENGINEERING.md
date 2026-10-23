@@ -29,6 +29,18 @@ Method notes:
   `pageindex` cookies). The citation-popover and "Open page" artifact behaviour in
   this app follows the user's description plus the API's citation data, not a
   screenshot of the official implementation.
+- **Second pass (2026-10-23), unauthenticated:** the conversation UI is observed
+  through public share links (`/share/chat/:shareId`, `/share/doc/:shareId`) plus 50
+  client chunks downloaded from those pages. That resolved the citation popover,
+  Sources block, reasoning/tool rows, document panel, `Page N of M` and composer.
+- **Third pass (2026-10-23), authenticated + platform:** with a live Free-plan session
+  the product surface was observed — a real chat created from the sample pack
+  (`/chat?session=…`), `/documents`, `/settings`, `/usage`, `/subscription`, the
+  Share dialog, the document panel, and computed styles from the DOM — plus a
+  **mobile** pass (390×844) and a **network** pass that enumerated the oRPC
+  procedure list (`/api/orpc/<router>/<proc>`), quotas, ingestion formats, answer
+  export (md/docx/pdf) and the **MCP server** at `app.pageindex.ai/mcp`.
+  Full matrix in [`FEATURE-COMPARISON.md`](./FEATURE-COMPARISON.md).
 
 ---
 
@@ -87,6 +99,46 @@ Documents / Recents / Settings / usage), chat as the default surface, and a
 document **artifact panel** that opens from a citation. Chats are stored in
 localStorage because the Cloud API exposes no conversation resource; the official
 app stores them server-side behind its own auth.
+
+**Verified against the live app (2026-10-23, Free plan).** These supersede the
+bundle-only inferences above:
+
+- The app is **dark-only** on this build: canvas `rgb(9,9,11)`, text
+  `rgb(250,250,250)`, **Geist** 16 px; blue accent (`#3788D8` theme colour, chips
+  `#C3D8F5`). No serif anywhere in product UI.
+- Sidebar ~198 px with New Chat / Documents / Explore, Recents, and a footer of
+  avatar + plan + **Upgrade** + a usage meter (`0%`).
+- **The authenticated chat has no header bar.** A floating `Share` pill is the only
+  chrome at the top left; the conversation title exists only in Recents and in the
+  `/share/chat/...` view. Chats are addressed as `/chat?session=<id>`.
+- Chat column and composer are both **768 px** wide; the composer is **145 px** tall
+  with a `+ Select Documents` pill and a circular `↑`/stop control.
+- Message toolbars: assistant = Copy / Download / Regenerate + timestamp;
+  user = Copy / Edit / Regenerate.
+- Tool steps expand into real results (document outline as a title/`Page N` table,
+  or document chip + `Returned pages 1–3`) and expose
+  **"View raw input and output"** (JSON viewer).
+- The document panel is **resizable** (508 px here, 618 px on the share page),
+  renders the **PDF** with a determinate `Loading document N%` bar, and reflows the
+  chat column instead of overlaying it.
+- `/documents`, `/settings`, `/usage`, `/subscription` and the Share dialog were all
+  captured; see [`FEATURE-COMPARISON.md`](./FEATURE-COMPARISON.md) §1.
+- **Transport:** the browser calls its own **oRPC** router (`POST /api/orpc/<router>/<proc>`)
+  — `chat/*`, `user/*`, `folder/tree`, `file/{list,recents,resolveCitations}`,
+  `explore/getBySlug`, `share/*`, `subscription/*`, `usage/getUsageStats`. Citation
+  resolution is a **bulk** server call (`file/resolveCitations` with `blockIds[]`).
+- **The app is also an MCP server:** `https://app.pageindex.ai/mcp` returns
+  `401 invalid_token` without OAuth (`/oauth/authorize`), and Settings → Integrations
+  → Connect ships one-click Claude Desktop / Cursor installs, "included in your
+  PageIndex Plan". `file/list` takes `mode:"mcp"` for that surface.
+- **Mobile (390×844)** is a dedicated layout: sidebar → left drawer, icon-only
+  `Share`, and a tap on a citation opens a full-height `Document Viewer` sheet
+  instead of the inline panel.
+- **Ingestion** accepts PDF, CSV, Markdown and TXT, plus `.zip` bundles that rebuild
+  the folder tree; `detectDocumentFormat` also knows docx.
+- **Answers export** to `.md`, `.docx` and `.pdf` (`Exporting Markdown…`,
+  `Markdown file downloaded`), and rich blocks export individually (tables as
+  CSV/Markdown/TSV, Mermaid as SVG/PNG/MMD).
 
 ---
 
@@ -271,13 +323,17 @@ Two wires therefore exist for the same product surface, and the app ships both:
 
 ## 6. Unknowns / not verified
 
-1. **The authenticated product UI.** Sidebar, citation popover, artifact panel and
-   mobile behaviour are reproduced from (a) the sidebar component recovered from
-   public chunks and (b) the user's description. A live session was offered but
-   could not be attached: the running Chrome had no DevTools port, and Windows
-   holds a lock on its cookie database. Pixel-level comparison is still pending.
-2. **What the official BFF calls.** Whether it uses `/chat/completions` or a
-   newer internal endpoint is unknown — it is behind auth.
+1. **The authenticated product UI.** Observed live on 2026-10-23 (Free plan): chat,
+   composer, message toolbars, tool-step expansion, Share dialog, document panel,
+   `/documents`, `/settings` (incl. Privacy & Data and the Connect/MCP panel),
+   `/usage`, `/subscription`, and the mobile (390×844) layout. Still unobserved:
+   Team Space internals (roles, invites, team billing — create dialog says
+   `$150/mo for 5 seats`), the PDF viewer's own toolbar, `/explore/:slug`,
+   `/explore/manage`, and the admin-only `/library`.
+2. **What the official BFF calls.** The browser talks to its own **oRPC** layer
+   (`/api/orpc/<router>/<proc>`, e.g. `landing/getSharedFileUrl`) plus
+   `/api/auth/session`; whether the server then uses `/chat/completions` or a newer
+   internal endpoint is still behind auth.
 3. **`block_reference` beta.** Whether the name is still required (our account's
    existing document has blocks without us uploading), and whether pages ever
    carry an inline `blocks[]` array for other plans.
@@ -288,8 +344,10 @@ Two wires therefore exist for the same product surface, and the app ships both:
    50 MB cap in `/api/upload` is this app's own guard.
 6. **`/retrieval/`** exists (`405` on GET) but is absent from the OpenAPI paths and
    the API reference; unused here.
-7. **Share links / public chats.** The sidebar ships sharing, and shared chats
-   would expose the chat UI publicly, but no share URL was available to inspect.
+7. **Share links / public chats.** Resolved: `/share/chat/:shareId` and
+   `/share/doc/:shareId` render read-only, unauthenticated views (no `/share/folder`
+   sample was found, but the route exists). Share access is per-source and can be
+   limited to chat / preview / downloads.
 
 ---
 

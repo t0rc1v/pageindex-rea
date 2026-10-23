@@ -16,18 +16,32 @@ library.
   trigger) and a Sheet on mobile, with New chat, Documents, Recents (renamable,
   deletable, persisted), usage, Settings. Nav structure reproduced from the
   shipped app's own sidebar component.
-- **Chat-first** — ask across the whole library or a chosen scope. The answer
-  streams with the retrieval steps shown (`Read the outline`, `Read pages 135-136`),
-  numbered inline citations, and a Sources row.
-- **Citation preview** — hover on desktop, tap on mobile: the cited page thumbnail
-  with the block outlined, the block's own text, block type/id, and **Open page**.
-- **Artifact panel** — Open page opens the document beside the chat, on the cited
-  page, with the block highlighted; step pages, jump to the full reader, close.
+- **Chat-first, no chat header** — the transcript is the page. Ask across the
+  whole library or a chosen scope; the composer carries the scope pill
+  (`+ Select Documents` popover) and a circular send/stop control.
+- **Inspectable work** — each tool step is a row (`Viewed folder structure`,
+  `Read pages 135–136 from "…"`, shimmering while in flight) that expands into a
+  real result: the document outline as a title ↔ `Page N` table, or the returned
+  pages as text. `</>` opens **View raw input and output** (JSON viewer).
+- **Reasoning row** — `Thought for Ns` collapses the model's narration; timings
+  survive reloads.
+- **Numbered inline citations** plus a **Sources** block (hairline row →
+  `N references · M documents`, grouped per document with page links).
+- **Citation preview** — hover on desktop, tap on mobile: `Page N of M`, a block-type
+  pill, the cited page thumbnail with the block outlined, the block's own text,
+  and **Open page ↗**.
+- **Document panel** — one tab per document, resizable on desktop, a bottom-sheet
+  viewer on phones; page image ↔ OCR text toggle, page navigation, `Document info`
+  (pages, uploaded, description), remembers the last page per document.
+- **Message actions** — copy, **Download** (Markdown, or Print → Save as PDF),
+  Regenerate, and edit-and-resend on a question. Tables copy/download as
+  Markdown/CSV; code blocks copy.
 - **Document reader** — the PageIndex tree as a navigable outline, page text as
   markdown (tables, figures), rendered page images with block highlight, keyboard
   paging.
-- **Library** — documents and workspace folders, drag-and-drop upload, live
-  indexing status, filtering, select-many → ask.
+- **Library** — documents and workspace folders, drag-and-drop upload
+  (PDF, Word, PowerPoint, CSV, Markdown, TXT, or a `.zip` bundle), live indexing
+  status, filtering, select-many → ask.
 - **Server-side key** — the PageIndex API key never reaches the browser.
 
 ---
@@ -132,6 +146,10 @@ pnpm mock:api                       # terminal 1, port 4319, api_key=test-key
 PAGEINDEX_API_URL=http://127.0.0.1:4319 PAGEINDEX_API_KEY=test-key pnpm dev
 ```
 
+`next build` and `next dev` share `.next`: stop the dev server before building, or
+the production output is clobbered mid-build and `next start` serves 404s for the
+CSS/chunks (seen while verifying this app).
+
 ---
 
 ## Project layout
@@ -163,6 +181,14 @@ scripts/mock-pageindex-api.mjs
 - **Single-user, no auth.** The API key *is* the account. Do not deploy publicly
   without sessions and rate limits.
 - **Conversations are local** to this browser; there is no Cloud API for them.
+- **No sharing or billing.** Chat/document share links, subscriptions, seats and
+  team spaces are deliberately out of scope for this build.
+- **PDF fidelity.** The Cloud API exposes rendered page images, not the original
+  PDF, so the document panel shows page renders plus OCR text rather than a PDF
+  canvas.
+- **Tool payloads.** The managed lane streams tool *arguments* but not results, so
+  an expanded step shows the fetched outline/pages when it can resolve them and
+  otherwise points at the raw view. The MCP lane emits real results.
 - **Block-level citations need blocks.** Documents indexed without them still work,
   but citations fall back to page level (the preview says so).
 - **Tables/figures come from OCR markdown**; use the page-image view when pixel
