@@ -172,7 +172,9 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://127.0.0.1:${PORT}`);
   const path = url.pathname;
 
-  if (!authorized(req)) {
+  // Presigned page renders are loaded by <img>, which cannot send api_key —
+  // the real API hands out pre-signed S3 URLs for exactly this reason.
+  if (!path.startsWith("/render/") && !authorized(req)) {
     return json(res, 401, { detail: "invalid api_key" });
   }
 

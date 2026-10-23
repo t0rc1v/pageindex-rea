@@ -198,7 +198,7 @@ export function LibraryView() {
           <input
             ref={inputRef}
             type="file"
-            accept="application/pdf"
+            accept=".pdf,.docx,.doc,.pptx,.ppt,.csv,.md,.markdown,.txt,.zip"
             multiple
             onChange={onPick}
             className="hidden"
@@ -209,7 +209,7 @@ export function LibraryView() {
             disabled={busy}
             onClick={() => inputRef.current?.click()}
           >
-            {busy ? <Spinner className="size-3.5" /> : "+"} Add PDF
+            {busy ? <Spinner className="size-3.5" /> : "+"} Add document
           </Button>
         </div>
       </header>
@@ -294,7 +294,7 @@ export function LibraryView() {
           )}
 
           <div className="mt-auto px-2 pt-4 text-[10px] leading-relaxed text-ink-muted/80">
-            PageIndex Cloud indexes PDFs into hierarchical trees, then answers
+            PageIndex Cloud indexes documents into hierarchical trees, then answers
             questions with page- and block-level citations.
           </div>
         </aside>
@@ -380,7 +380,7 @@ export function LibraryView() {
               description={
                 query
                   ? "No document name or description matches that filter."
-                  : "Upload a PDF — reports, textbooks, legal filings, papers. PageIndex parses it, OCRs it, and builds the tree index the reader navigates."
+                  : "Upload PDFs, Word, PowerPoint, spreadsheets, Markdown or a ZIP of a whole folder. PageIndex parses it, OCRs it, and builds the tree index the reader navigates."
               }
               action={
                 query ? (
@@ -389,7 +389,7 @@ export function LibraryView() {
                   </Button>
                 ) : (
                   <Button variant="primary" onClick={() => inputRef.current?.click()}>
-                    Add your first PDF
+                    Add your first document
                   </Button>
                 )
               }
@@ -415,7 +415,7 @@ export function LibraryView() {
       {dragging && (
         <div className="pointer-events-none fixed inset-0 z-40 grid place-items-center bg-ink/40 backdrop-blur-sm">
           <div className="rounded-2xl border-2 border-dashed border-paper/80 px-10 py-8 text-center text-paper">
-            <p className="font-serif text-xl">Drop PDFs to index</p>
+            <p className="font-serif text-xl">Drop documents to index</p>
             <p className="mt-1 text-[12px] opacity-80">
               They upload to your PageIndex Cloud account
             </p>

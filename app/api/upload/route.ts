@@ -4,6 +4,28 @@ import { errorResponse, jsonResponse } from "@/lib/server/http";
 const MAX_BYTES = 50 * 1024 * 1024;
 
 /**
+ * Formats the product accepts. `.zip` is a bundle: the Cloud API expands it and
+ * rebuilds the folder tree, which is how a whole data room goes up at once.
+ */
+export const ACCEPTED_EXTENSIONS = [
+  ".pdf",
+  ".docx",
+  ".doc",
+  ".pptx",
+  ".ppt",
+  ".csv",
+  ".md",
+  ".markdown",
+  ".txt",
+  ".zip",
+] as const;
+
+function extensionOf(name: string): string {
+  const match = name.toLowerCase().match(/\.[a-z0-9]+$/);
+  return match ? match[0] : "";
+}
+
+/**
  * POST /api/upload — multipart pass-through to `POST /doc/`.
  *
  * Indexing options sent with every upload (the Cloud API accepts them as form
@@ -25,7 +47,7 @@ export async function POST(request: Request) {
 
     if (!(file instanceof File)) {
       return jsonResponse(
-        { error: "Attach a PDF as the `file` field.", code: "INTERNAL", status: 400 },
+        { error: "Attach a file as the `file` field.", code: "INTERNAL", status: 400 },
         { status: 400 },
       );
     }
@@ -37,6 +59,18 @@ export async function POST(request: Request) {
           status: 413,
         },
         { status: 413 },
+      );
+    }
+
+    const extension = extensionOf(file.name);
+    if (!ACCEPTED_EXTENSIONS.includes(extension as (typeof ACCEPTED_EXTENSIONS)[number])) {
+      return jsonResponse(
+        {
+          error: `Unsupported format "${extension || file.name}". Upload ${ACCEPTED_EXTENSIONS.join(", ")}.`,
+          code: "INTERNAL",
+          status: 415,
+        },
+        { status: 415 },
       );
     }
 
