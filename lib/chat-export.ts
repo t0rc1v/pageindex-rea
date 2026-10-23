@@ -8,6 +8,8 @@ function plain(text: string): string {
     .replace(/<doc=[^>]*>/g, "")
     .replace(/<cite\b[^>]*\/>/g, "")
     .replace(/[ \t]+\n/g, "\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/ +([.,;:!?])/g, "$1")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -104,6 +106,271 @@ export function printAnswer(node: HTMLElement | null, title: string, question?: 
   frame.document.close();
   frame.focus();
   setTimeout(() => frame.print(), 350);
+}
+
+/**
+ * Word export. `docx` is large, so it is imported only when the reader actually
+ * asks for a .docx; the markdown is converted with a deliberately small subset
+ * (headings, lists, tables, quotes, code, paragraphs).
+ */
+export async function exportDocx(input: ExportInput): Promise<void> {
+  const {
+    Document,
+    Packer,
+    Paragraph,
+    HeadingLevel,
+    TextRun,
+    Table,
+    TableRow,
+    TableCell,
+    WidthType,
+  } = await import("docx");
+
+  const sources = input.citations
+    .filter((citation, index, all) => {
+      const key = `${citation.document}|${citation.page}|${citation.blockId ?? ""}`;
+      return all.findIndex((item) => `${item.document}|${item.page}|${item.blockId ?? ""}` === key) === index;
+    })
+    .map(
+      (citation, index) =>
+        new Paragraph({
+          text: `${index + 1}. ${citation.document} — page ${citation.page}`,
+          bullet: { level: 0 },
+        }),
+    );
+
+  type Block = InstanceType<typeof Paragraph> | InstanceType<typeof Table>;
+  const children: Block[] = [];
+  const push = (item: Block) => {
+    children.push(item);
+  };
+
+  if (input.title) push(new Paragraph({ text: input.title, heading: HeadingLevel.HEADING_1 }));
+  if (input.question) {
+    push(new Paragraph({ children: [new TextRun({ text: input.question, bold: true })] }));
+    push(new Paragraph({ text: "" }));
+  }
+
+  const lines = plain(input.answer).split(/\r?\n/);
+  let tableBuffer: string[] = [];
+  const flushTable = () => {
+    if (tableBuffer.length === 0) return;
+    const rows = tableBuffer
+      .filter((line) => !/^\s*\|?[\s:-]*-{3,}[\s:|-]*\|?\s*$/.test(line))
+      .map((line) =>
+        line
+          .replace(/^\s*\||\|\s*$/g, "")
+          .split("|")
+          .map((cell) => cell.trim()),
+      );
+    tableBuffer = [];
+    if (rows.length === 0) return;
+    push(
+      new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        rows: rows.map(
+          (cells) =>
+            new TableRow({
+              children: cells.map(
+                (cell) => new TableCell({ children: [new Paragraph({ text: cell })] }),
+              ),
+            }),
+        ),
+      }),
+    );
+    push(new Paragraph({ text: "" }));
+  };
+
+  for (const line of lines) {
+    if (/^\s*\|.*\|\s*$/.test(line)) {
+      tableBuffer.push(line);
+      continue;
+    }
+    flushTable();
+
+    const heading = /^(#{1,4})\s+(.*)$/.exec(line);
+    if (heading) {
+      const level = [HeadingLevel.HEADING_1, HeadingLevel.HEADING_2, HeadingLevel.HEADING_3, HeadingLevel.HEADING_4][
+        heading[1]!.length - 1
+      ]!;
+      push(new Paragraph({ text: stripInline(heading[2]!), heading: level }));
+      continue;
+    }
+    if (/^\s*[-*+]\s+/.test(line)) {
+      push(new Paragraph({ text: stripInline(line.replace(/^\s*[-*+]\s+/, "")), bullet: { level: 0 } }));
+      continue;
+    }
+    if (/^\s*\d+[.)]\s+/.test(line)) {
+      push(new Paragraph({ text: stripInline(line.replace(/^\s*\d+[.)]\s+/, "")), bullet: { level: 0 } }));
+      continue;
+    }
+    if (/^\s*>\s?/.test(line)) {
+      push(
+        new Paragraph({
+          children: [new TextRun({ text: stripInline(line.replace(/^\s*>\s?/, "")), italics: true })],
+        }),
+      );
+      continue;
+    }
+    if (!line.trim()) {
+      push(new Paragraph({ text: "" }));
+      continue;
+    }
+    push(
+      new Paragraph({ children: [new TextRun({ text: stripInline(line), font: "Calibri" })] }),
+    );
+  }
+  flushTable();
+
+  if (sources.length > 0) {
+    push(new Paragraph({ text: "Sources", heading: HeadingLevel.HEADING_2 }));
+    sources.forEach(push);
+  }
+
+  const docFile = new Document({ sections: [{ children }] });
+  const blob = await Packer.toBlob(docFile);
+  const url = URL.createObjectURL(blob);
+  const anchor = window.document.createElement("a");
+  anchor.href = url;
+  anchor.download = `${safeFilename(input.question ?? input.title ?? "answer")}.docx`;
+  anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/**
+ * PDF export.
+ *
+ * Rendered straight into jsPDF rather than rasterising the DOM: html2canvas
+ * cannot parse the modern colour functions Tailwind v4 emits (`oklch`/`lab`),
+ * and a full-page raster blocks the main thread for seconds. Text stays
+ * selectable, tables stay readable, and the file is small.
+ */
+export async function exportPdf(input: ExportInput, filename: string): Promise<void> {
+  const { jsPDF } = await import("jspdf");
+  const pdf = new jsPDF({ unit: "pt", format: "a4" });
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const margin = 48;
+  const width = pageWidth - margin * 2;
+  let y = margin;
+
+  const ensure = (needed: number) => {
+    if (y + needed <= pageHeight - margin) return;
+    pdf.addPage();
+    y = margin;
+  };
+
+  const write = (
+    text: string,
+    options: { size?: number; style?: "normal" | "bold" | "italic"; indent?: number; gap?: number } = {},
+  ) => {
+    const { size = 11, style = "normal", indent = 0, gap = 4 } = options;
+    pdf.setFont("helvetica", style);
+    pdf.setFontSize(size);
+    const lines = pdf.splitTextToSize(text, width - indent) as string[];
+    for (const line of lines) {
+      ensure(size * 1.45);
+      pdf.text(line, margin + indent, y);
+      y += size * 1.45;
+    }
+    y += gap;
+  };
+
+  if (input.title) write(input.title, { size: 18, style: "bold", gap: 8 });
+  if (input.question) {
+    write(input.question, { size: 11, style: "italic", gap: 10 });
+  }
+
+  const lines = plain(input.answer).split(/\r?\n/);
+  let tableRows: string[][] = [];
+  const flushTable = () => {
+    if (tableRows.length === 0) return;
+    const rows = tableRows;
+    tableRows = [];
+    const columns = Math.max(...rows.map((row) => row.length));
+    const columnWidth = width / Math.max(1, columns);
+    for (const [index, row] of rows.entries()) {
+      ensure(16);
+      const isHead = index === 0;
+      pdf.setFont("helvetica", isHead ? "bold" : "normal");
+      pdf.setFontSize(9);
+      row.forEach((cell, column) => {
+        const [line = ""] = pdf.splitTextToSize(cell, columnWidth - 6) as string[];
+        pdf.text(line, margin + column * columnWidth + 3, y);
+      });
+      pdf.setDrawColor(226, 226, 234);
+      pdf.line(margin, y + 3, margin + width, y + 3);
+      y += 14;
+    }
+    y += 6;
+  };
+
+  for (const line of lines) {
+    if (/^\s*\|.*\|\s*$/.test(line)) {
+      if (!/^\s*\|[\s:|-]+\|\s*$/.test(line)) {
+        tableRows.push(
+          line
+            .replace(/^\s*\||\|\s*$/g, "")
+            .split("|")
+            .map((cell) => cell.trim()),
+        );
+      }
+      continue;
+    }
+    flushTable();
+
+    const heading = /^(#{1,4})\s+(.*)$/.exec(line);
+    if (heading) {
+      write(stripInline(heading[2]!), {
+        size: [16, 14, 12, 11][heading[1]!.length - 1]!,
+        style: "bold",
+        gap: 6,
+      });
+      continue;
+    }
+    if (/^\s*```/.test(line)) continue;
+    if (/^\s*[-*+]\s+/.test(line)) {
+      write(`• ${stripInline(line.replace(/^\s*[-*+]\s+/, ""))}`, { indent: 12, gap: 2 });
+      continue;
+    }
+    if (/^\s*\d+[.)]\s+/.test(line)) {
+      write(stripInline(line), { indent: 12, gap: 2 });
+      continue;
+    }
+    if (/^\s*>\s?/.test(line)) {
+      write(stripInline(line.replace(/^\s*>\s?/, "")), { style: "italic", indent: 12, gap: 4 });
+      continue;
+    }
+    if (!line.trim()) {
+      y += 4;
+      continue;
+    }
+    write(stripInline(line));
+  }
+  flushTable();
+
+  if (input.citations.length > 0) {
+    write("Sources", { size: 13, style: "bold", gap: 6 });
+    const seen = new Set<string>();
+    let index = 1;
+    for (const citation of input.citations) {
+      const key = `${citation.document}|${citation.page}|${citation.blockId ?? ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      write(`${index}. ${citation.document} — page ${citation.page}`, { size: 10, indent: 12, gap: 1 });
+      index += 1;
+    }
+  }
+
+  pdf.save(`${filename}.pdf`);
+}
+
+function stripInline(value: string): string {
+  return value
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/[*_`~]/g, "")
+    .trim();
 }
 
 function escapeHtml(value: string): string {

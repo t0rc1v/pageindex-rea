@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useSyncExternalStore } from "react";
 
 import { ApiError, apiGet } from "./api";
 
@@ -12,20 +13,15 @@ export interface FetchState<T> {
   setData: (data: T) => void;
 }
 
-interface InternalState<T> {
-  url: string | null;
-  key: string | null;
-  data?: T;
-  error?: ApiError;
-}
+const LOCAL_FLAG_EVENT = "pageindex:local-flag";
 
 /**
- * Minimal GET hook with stale-while-revalidate semantics.
+ * GET hook backed by TanStack Query.
  *
- * Loading is *derived* from whether the settled key matches the requested one,
- * so no state is written synchronously inside the effect. `refreshMs` polls
- * without flashing a spinner — the library uses that for documents that are
- * still indexing.
+ * Keeps the original `useFetch` contract (data / error / loading / reload /
+ * setData) so call sites stay unchanged, while gaining a shared cache,
+ * deduplication across components, and invalidation. Polling is expressed as
+ * `refetchInterval`, which can stop itself once the payload settles.
  */
 export function useFetch<T>(
   url: string | null,
@@ -34,74 +30,45 @@ export function useFetch<T>(
     enabled?: boolean;
     /** Stop polling once the payload says there is nothing left to watch. */
     stopWhen?: (data: T) => boolean;
+    staleTime?: number;
   } = {},
 ): FetchState<T> {
-  const { refreshMs, enabled = true, stopWhen } = options;
-  const [nonce, setNonce] = useState(0);
-  const [state, setState] = useState<InternalState<T>>({ url: null, key: null });
-  const mounted = useRef(true);
+  const { refreshMs, enabled = true, stopWhen, staleTime = 30_000 } = options;
+  const client = useQueryClient();
+  const key = ["pageindex", url] as const;
 
-  const key = url && enabled ? `${url}::${nonce}` : null;
+  const query = useQuery<T, ApiError>({
+    queryKey: key,
+    queryFn: ({ signal }) => apiGet<T>(url as string, signal),
+    enabled: Boolean(url) && enabled,
+    staleTime,
+    refetchOnWindowFocus: false,
+    retry: false,
+    refetchInterval: (query) => {
+      if (!refreshMs) return false;
+      const data = query.state.data as T | undefined;
+      if (data !== undefined && stopWhen?.(data)) return false;
+      return refreshMs;
+    },
+  });
 
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
+  const reload = useCallback(() => {
+    if (!url) return;
+    void client.invalidateQueries({ queryKey: ["pageindex", url] });
+  }, [client, url]);
 
-  useEffect(() => {
-    if (!url || !key) return;
-
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-
-    const run = async () => {
-      let latest: T | undefined;
-      try {
-        latest = await apiGet<T>(url, controller.signal);
-        if (controller.signal.aborted || !mounted.current) return;
-        setState({ url, key, data: latest });
-      } catch (caught) {
-        if (controller.signal.aborted || !mounted.current) return;
-        setState((previous) => ({
-          url,
-          key,
-          data: previous.url === url ? previous.data : undefined,
-          error:
-            caught instanceof ApiError
-              ? caught
-              : new ApiError("Network error", "INTERNAL", 0),
-        }));
-        return;
-      }
-      const settled = latest !== undefined && stopWhen?.(latest) === true;
-      if (refreshMs && !settled && !controller.signal.aborted) {
-        timer = setTimeout(() => void run(), refreshMs);
-      }
-    };
-
-    void run();
-
-    return () => {
-      controller.abort();
-      if (timer) clearTimeout(timer);
-    };
-  }, [url, key, refreshMs, stopWhen]);
-
-  const current = state.url === url;
-  const loading = Boolean(key) && (!current || state.key !== key);
-
-  const reload = useCallback(() => setNonce((value) => value + 1), []);
   const setData = useCallback(
-    (data: T) => setState((previous) => ({ ...previous, data })),
-    [],
+    (data: T) => {
+      if (!url) return;
+      client.setQueryData(["pageindex", url], data);
+    },
+    [client, url],
   );
 
   return {
-    data: current ? state.data : undefined,
-    error: current && state.key === key ? state.error : undefined,
-    loading,
+    data: query.data,
+    error: query.error ?? undefined,
+    loading: Boolean(url) && enabled && query.isPending,
     reload,
     setData,
   };
@@ -147,8 +114,6 @@ export function useLocalFlag(
 
   return [value, set];
 }
-
-const LOCAL_FLAG_EVENT = "pageindex:local-flag";
 
 /** False during SSR/hydration, true once mounted on the client. */
 export function useIsClient(): boolean {

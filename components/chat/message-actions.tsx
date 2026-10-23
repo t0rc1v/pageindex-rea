@@ -1,10 +1,25 @@
 "use client";
 
-import { Check, Copy, Download, FileText, Pencil, Printer, RotateCcw, X } from "lucide-react";
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  Download,
+  FileText,
+  Pencil,
+  Printer,
+  RotateCcw,
+  ThumbsDown,
+  ThumbsUp,
+  X,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import {
   downloadFile,
+  exportDocx,
+  exportPdf,
   printAnswer,
   safeFilename,
   toMarkdown,
@@ -29,21 +44,24 @@ function IconButton({
   onClick,
   children,
   active,
+  disabled,
 }: {
   label: string;
   onClick: () => void;
   children: React.ReactNode;
   active?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       aria-label={label}
       title={label}
       className={cn(
-        "cursor-pointer rounded-md p-1.5 text-ink-muted transition-colors hover:bg-paper hover:text-ink",
-        active && "text-emerald-600",
+        "cursor-pointer rounded-md p-1.5 text-ink-muted transition-colors hover:bg-paper hover:text-ink disabled:cursor-default disabled:opacity-40",
+        active && "text-brand-deep",
       )}
     >
       {children}
@@ -51,10 +69,15 @@ function IconButton({
   );
 }
 
+export interface BranchInfo {
+  index: number;
+  total: number;
+  onSelect: (index: number) => void;
+}
+
 /**
- * The row under a message: copy / export / regenerate for answers, copy / edit
- * for questions. Exports are client-side (Markdown, or the browser's own print
- * dialog for PDF) — there is no server to render a document.
+ * The row under a message: branch control for regenerated answers, copy, export,
+ * regenerate, thumbs, and the timestamp. User turns get copy + edit only.
  */
 export function MessageActions({
   role,
@@ -67,6 +90,9 @@ export function MessageActions({
   onRegenerate,
   canRegenerate,
   onEdit,
+  branch,
+  feedback,
+  onFeedback,
 }: {
   role: "user" | "assistant";
   text: string;
@@ -78,15 +104,21 @@ export function MessageActions({
   onRegenerate?: () => void;
   canRegenerate?: boolean;
   onEdit?: (next: string) => void;
+  branch?: BranchInfo;
+  feedback?: "up" | "down";
+  onFeedback?: (value: "up" | "down") => void;
 }) {
   const [copied, setCopied] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => () => {
-    if (copiedTimer.current) clearTimeout(copiedTimer.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -114,9 +146,37 @@ export function MessageActions({
         "flex items-center gap-0.5 transition-opacity sm:opacity-0 sm:group-hover/message:opacity-100 sm:group-focus-within/message:opacity-100",
         // The export menu lives inside this row, so an open menu must pin the
         // row visible even when the pointer has moved into the dropdown.
-        (menuOpen || copied) && "opacity-100",
+        // An open menu pins the row, and a branch selector is useless if the
+        // reader cannot see that previous answers exist.
+        (menuOpen || copied || (branch?.total ?? 0) > 1) && "opacity-100",
       )}
     >
+      {branch && branch.total > 1 && (
+        <div className="mr-1 flex items-center rounded-md border border-line bg-surface">
+          <button
+            type="button"
+            aria-label="Previous branch"
+            onClick={() => branch.onSelect(Math.max(0, branch.index - 1))}
+            disabled={branch.index <= 0}
+            className="cursor-pointer rounded-l-md px-1 py-0.5 text-ink-muted hover:bg-paper hover:text-ink disabled:opacity-30"
+          >
+            <ChevronLeft className="size-3.5" aria-hidden />
+          </button>
+          <span className="px-1 font-mono text-[10px] tabular-nums text-ink-muted">
+            {branch.index + 1}/{branch.total}
+          </span>
+          <button
+            type="button"
+            aria-label="Next branch"
+            onClick={() => branch.onSelect(Math.min(branch.total - 1, branch.index + 1))}
+            disabled={branch.index >= branch.total - 1}
+            className="cursor-pointer rounded-r-md px-1 py-0.5 text-ink-muted hover:bg-paper hover:text-ink disabled:opacity-30"
+          >
+            <ChevronRight className="size-3.5" aria-hidden />
+          </button>
+        </div>
+      )}
+
       <IconButton label={role === "user" ? "Copy message" : "Copy answer"} onClick={copy} active={copied}>
         {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
       </IconButton>
@@ -127,11 +187,16 @@ export function MessageActions({
             <Download className="size-3.5" />
           </IconButton>
           {menuOpen && (
-            <div className="absolute bottom-8 left-0 z-30 w-56 overflow-hidden rounded-lg border border-line bg-surface p-1 shadow-xl">
+            <div className="pi-enter absolute bottom-8 left-0 z-30 w-56 overflow-hidden rounded-lg border border-line bg-surface p-1 shadow-xl">
               <button
                 type="button"
                 onClick={() => {
-                  const markdown = toMarkdown({ question, answer: text, citations: citations ?? [], title });
+                  const markdown = toMarkdown({
+                    question,
+                    answer: text,
+                    citations: citations ?? [],
+                    title,
+                  });
                   downloadFile(`${safeFilename(question ?? title ?? "answer")}.md`, markdown);
                   setMenuOpen(false);
                 }}
@@ -142,12 +207,47 @@ export function MessageActions({
               <button
                 type="button"
                 onClick={() => {
+                  void exportDocx({
+                    question,
+                    answer: text,
+                    citations: citations ?? [],
+                    title,
+                  });
+                  setMenuOpen(false);
+                }}
+                className="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-ink hover:bg-paper"
+              >
+                <FileText className="size-3.5 text-ink-muted" aria-hidden /> Word (.docx)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const payload = {
+                    question,
+                    answer: text,
+                    citations: citations ?? [],
+                    title,
+                  };
+                  void exportPdf(payload, safeFilename(question ?? title ?? "answer")).catch(() => {
+                    // Last resort: the browser's own print-to-PDF, which never
+                    // depends on a client-side renderer.
+                    printAnswer(getNode?.() ?? null, title ?? "Answer", question);
+                  });
+                  setMenuOpen(false);
+                }}
+                className="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-ink hover:bg-paper"
+              >
+                <Download className="size-3.5 text-ink-muted" aria-hidden /> PDF (.pdf)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
                   printAnswer(getNode?.() ?? null, title ?? "Answer", question);
                   setMenuOpen(false);
                 }}
                 className="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-ink hover:bg-paper"
               >
-                <Printer className="size-3.5 text-ink-muted" aria-hidden /> Print / Save as PDF
+                <Printer className="size-3.5 text-ink-muted" aria-hidden /> Print…
               </button>
             </div>
           )}
@@ -160,9 +260,29 @@ export function MessageActions({
           onClick={() => {
             if (canRegenerate !== false) onRegenerate();
           }}
+          disabled={canRegenerate === false}
         >
           <RotateCcw className="size-3.5" />
         </IconButton>
+      )}
+
+      {role === "assistant" && onFeedback && (
+        <>
+          <IconButton
+            label="Good answer"
+            onClick={() => onFeedback("up")}
+            active={feedback === "up"}
+          >
+            <ThumbsUp className="size-3.5" />
+          </IconButton>
+          <IconButton
+            label="Bad answer"
+            onClick={() => onFeedback("down")}
+            active={feedback === "down"}
+          >
+            <ThumbsDown className="size-3.5" />
+          </IconButton>
+        </>
       )}
 
       {role === "user" && onEdit && (

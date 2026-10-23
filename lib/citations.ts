@@ -11,7 +11,7 @@ import type { Citation } from "./pageindex/types";
  * A page-only tag (no block) is legitimate: it happens for legacy documents
  * and for structure outlines, where no block ids exist.
  */
-const OLD_CITATION = /<doc=([^;<>]+);page=(\d+)(?:;block(?:_id)?=([^;<>]+))?>/g;
+const OLD_CITATION = /<doc=([^;<>]+);page=(\d+(?:-\d+)?)(?:;block(?:_id)?=([^;<>]+))?>/g;
 const CITE_TAG = /<cite\s([^<>]*)>(?:([^<>]*)<\/cite>)?/g;
 const CITE_ATTR = /\b(\w+)=(["'])([^"']*)\2/g;
 

@@ -13,6 +13,59 @@ interface ChatRequestBody {
   docIds?: unknown;
   docs?: unknown;
   folderId?: unknown;
+  context?: unknown;
+}
+
+/** A page the reader pinned into the question ("Add page to chat"). */
+interface PageContextItem {
+  docName?: string;
+  page?: number;
+  text?: string;
+}
+
+const MAX_CONTEXT_ITEMS = 4;
+const MAX_CONTEXT_CHARS = 24_000;
+
+function parseContext(value: unknown): PageContextItem[] {
+  if (!Array.isArray(value)) return [];
+  const items: PageContextItem[] = [];
+  let chars = 0;
+  for (const raw of value.slice(0, MAX_CONTEXT_ITEMS)) {
+    if (!raw || typeof raw !== "object") continue;
+    const item = raw as { docName?: unknown; page?: unknown; text?: unknown };
+    const text = typeof item.text === "string" ? item.text.trim() : "";
+    if (!text) continue;
+    if (chars + text.length > MAX_CONTEXT_CHARS) break;
+    chars += text.length;
+    items.push({
+      docName: typeof item.docName === "string" ? item.docName : undefined,
+      page: typeof item.page === "number" ? item.page : undefined,
+      text,
+    });
+  }
+  return items;
+}
+
+/**
+ * Pinned pages travel as a system message: the chat endpoints accept a document
+ * scope, not a page scope, so the reader states the pages it already opened.
+ */
+function contextMessage(items: PageContextItem[]): ChatMessage {
+  const body = items
+    .map((item) => {
+      const where = [item.docName, item.page ? `page ${item.page}` : null]
+        .filter(Boolean)
+        .join(", ");
+      return `<page ${where}>` + "\n" + item.text + "\n" + "</page>";
+    })
+    .join("\n" + "\n");
+  return {
+    role: "system",
+    content:
+      "The reader attached the following pages from their library to this question. " +
+      "Treat them as already open and cite them normally." + "\n" + "\n" +
+      body,
+  };
 }
 
 function parseMessages(value: unknown): ChatMessage[] | null {
@@ -63,8 +116,8 @@ function parseDocs(value: unknown): Array<{ id: string; name: string }> {
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as ChatRequestBody;
-    const messages = parseMessages(body.messages);
-    if (!messages) {
+    const history = parseMessages(body.messages);
+    if (!history) {
       return jsonResponse(
         {
           error: "Send a non-empty `messages` array of {role, content}.",
@@ -103,6 +156,11 @@ export async function POST(request: Request) {
     }
 
     const folderId = typeof body.folderId === "string" ? body.folderId : undefined;
+
+    // Pages the reader pinned are passed as a system preamble, not as user text,
+    // so they never appear inside the conversation itself.
+    const pinned = parseContext(body.context);
+    const messages = pinned.length > 0 ? [contextMessage(pinned), ...history] : history;
 
     // Two lanes, same client events:
     //  - MCP (preferred, docs-recommended): our model drives PageIndex's tools.

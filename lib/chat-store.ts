@@ -36,14 +36,27 @@ export interface TurnTimings {
   finishedAt?: number;
 }
 
-export interface StoredTurn {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
+/**
+ * One response. Regenerate appends a sibling run instead of overwriting, so the
+ * previous answer stays reachable behind the branch control.
+ */
+export interface StoredRun {
+  blocks: Record<number, string>;
   citations: StoredCitation[];
   tools: StoredTool[];
   error?: string;
   timings?: TurnTimings;
+}
+
+export interface StoredTurn {
+  id: string;
+  role: "user" | "assistant";
+  /** Assistants: one per regeneration. Users: exactly one. */
+  runs: StoredRun[];
+  activeRun: number;
+  feedback?: "up" | "down";
+  /** Documents in scope when the question was asked. */
+  docs?: Array<{ id: string; name: string }>;
 }
 
 export interface StoredChat {
@@ -54,6 +67,49 @@ export interface StoredChat {
   docIds: string[];
   docs: Array<{ id: string; name: string }>;
   turns: StoredTurn[];
+}
+
+/**
+ * Earlier builds stored a turn as a flat `content`/`citations`/`tools` triple
+ * with no run history. Fold those into a single run on read.
+ */
+function migrateTurn(raw: unknown): StoredTurn | null {
+  if (!raw || typeof raw !== "object") return null;
+  const turn = raw as Partial<StoredTurn> & {
+    content?: string;
+    citations?: StoredCitation[];
+    tools?: StoredTool[];
+    error?: string;
+    timings?: TurnTimings;
+  };
+  if (typeof turn.id !== "string" || (turn.role !== "user" && turn.role !== "assistant")) {
+    return null;
+  }
+  if (Array.isArray(turn.runs) && turn.runs.length > 0) {
+    const activeRun = Math.min(Math.max(turn.activeRun ?? turn.runs.length - 1, 0), turn.runs.length - 1);
+    return {
+      id: turn.id,
+      role: turn.role,
+      runs: turn.runs,
+      activeRun,
+      ...(turn.feedback ? { feedback: turn.feedback } : {}),
+      ...(turn.docs ? { docs: turn.docs } : {}),
+    };
+  }
+  return {
+    id: turn.id,
+    role: turn.role,
+    runs: [
+      {
+        blocks: turn.content ? { 0: turn.content } : {},
+        citations: turn.citations ?? [],
+        tools: turn.tools ?? [],
+        ...(turn.error ? { error: turn.error } : {}),
+        ...(turn.timings ? { timings: turn.timings } : {}),
+      },
+    ],
+    activeRun: 0,
+  };
 }
 
 const STORAGE_KEY = "pageindex-reader/chats/v1";
@@ -72,6 +128,10 @@ function read(): StoredChat[] {
     if (!Array.isArray(parsed)) return [];
     return parsed
       .filter((chat) => chat && typeof chat.id === "string" && Array.isArray(chat.turns))
+      .map((chat) => ({
+        ...chat,
+        turns: chat.turns.map(migrateTurn).filter((turn): turn is StoredTurn => turn !== null),
+      }))
       .sort((a, b) => b.updatedAt - a.updatedAt);
   } catch {
     return [];

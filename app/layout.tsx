@@ -1,5 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Source_Serif_4 } from "next/font/google";
+
+import { AppProviders } from "@/components/providers";
+import { ConfirmProvider } from "@/components/ui/confirm";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -40,9 +43,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} ${sourceSerif.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
       <body className="flex h-dvh flex-col overflow-hidden bg-paper text-ink">
-        {children}
+        <AppProviders>
+          <ConfirmProvider>{children}</ConfirmProvider>
+        </AppProviders>
       </body>
     </html>
   );

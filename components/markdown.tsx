@@ -8,6 +8,7 @@ import { citationKey, tokenizeCitations } from "@/lib/citations";
 import { downloadFile } from "@/lib/chat-export";
 import type { Citation } from "@/lib/pageindex/types";
 import { CitationChip, type CitationPreviewHandler } from "./citation-chip";
+import { MermaidDiagram } from "./markdown-mermaid";
 import { cn } from "./ui-kit";
 
 function isAbsoluteUrl(value: string): boolean {
@@ -50,26 +51,21 @@ function buildComponents(
         </a>
       );
     },
-    img: ({ src, alt, ...props }) => {
+    img: ({ src, alt }) => {
       const raw = typeof src === "string" ? src : "";
       if (!raw) return null;
       const resolved =
         docId && !isAbsoluteUrl(raw)
           ? `/api/docs/${encodeURIComponent(docId)}/image/${encodeURIComponent(raw)}`
           : raw;
-      return (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          {...props}
-          src={resolved}
-          alt={alt ?? ""}
-          loading="lazy"
-          className="my-3 max-h-[520px] w-auto max-w-full rounded-lg border border-line bg-white object-contain"
-        />
-      );
+      return <ImageFrame src={resolved} alt={alt ?? ""} />;
     },
     table: ({ children }) => <TableFrame>{children}</TableFrame>,
-    pre: ({ children }) => <CodeFrame>{children}</CodeFrame>,
+    pre: ({ children }) => {
+      const fence = readFence(children);
+      if (fence.lang === "mermaid") return <MermaidDiagram code={fence.text} />;
+      return <CodeFrame>{children}</CodeFrame>;
+    },
   };
 }
 
@@ -142,6 +138,79 @@ function toMarkdownTable(rows: string[][]): string {
   return [line(head ?? []), divider, ...body.map(line)].join("\n");
 }
 
+function toTsv(rows: string[][]): string {
+  return rows.map((row) => row.join("\t")).join("\n");
+}
+
+/** A figure in an answer: keeps the image, gains download and copy-link. */
+function ImageFrame({ src, alt }: { src: string; alt: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <figure className="group/image relative my-3">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt={alt}
+        loading="lazy"
+        className="max-h-[520px] w-auto max-w-full rounded-lg border border-line bg-white object-contain"
+      />
+      <div className="absolute right-1.5 top-1.5 flex items-center gap-0.5 rounded-md border border-line bg-surface/95 p-0.5 opacity-0 shadow-sm transition-opacity group-hover/image:opacity-100 focus-within:opacity-100">
+        <button
+          type="button"
+          title="Copy image link"
+          onClick={() => {
+            void navigator.clipboard.writeText(new URL(src, window.location.href).href).then(() => {
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1400);
+            });
+          }}
+          className="cursor-pointer rounded px-1.5 py-0.5 text-[10px] text-ink-muted hover:bg-paper hover:text-ink"
+        >
+          {copied ? "Copied" : "Link"}
+        </button>
+        <button
+          type="button"
+          title="Download image"
+          onClick={() => {
+            void (async () => {
+              try {
+                const response = await fetch(src);
+                const blob = await response.blob();
+                const url = URL.createObjectURL(blob);
+                const anchor = document.createElement("a");
+                anchor.href = url;
+                anchor.download = alt || "image";
+                anchor.click();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+              } catch {
+                /* download is best effort */
+              }
+            })();
+          }}
+          className="cursor-pointer rounded px-1.5 py-0.5 text-[10px] text-ink-muted hover:bg-paper hover:text-ink"
+        >
+          Save
+        </button>
+      </div>
+    </figure>
+  );
+}
+
+/** Pull the language + text out of the `<code>` inside a fenced block. */
+function readFence(children: React.ReactNode): { lang?: string; text: string } {
+  const flatten = (node: React.ReactNode): string => {
+    if (node === null || node === undefined || typeof node === "boolean") return "";
+    if (typeof node === "string" || typeof node === "number") return String(node);
+    if (Array.isArray(node)) return node.map(flatten).join("");
+    const element = node as { props?: { children?: React.ReactNode } };
+    return flatten(element.props?.children);
+  };
+  const first = Array.isArray(children) ? children[0] : children;
+  const props = (first as { props?: { className?: string } } | null)?.props;
+  const match = /language-([a-z0-9-]+)/i.exec(props?.className ?? "");
+  return { lang: match?.[1]?.toLowerCase(), text: flatten(children).replace(/\n$/, "") };
+}
+
 /** A table that can leave as CSV or Markdown — answers are data, not prose. */
 function TableFrame({ children }: { children?: React.ReactNode }) {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -165,6 +234,17 @@ function TableFrame({ children }: { children?: React.ReactNode }) {
         </button>
         <button
           type="button"
+          title="Copy table as TSV"
+          onClick={() => {
+            const rows = extract();
+            if (rows.length) void navigator.clipboard.writeText(toTsv(rows));
+          }}
+          className="cursor-pointer rounded px-1.5 py-0.5 text-[10px] text-ink-muted hover:bg-paper hover:text-ink"
+        >
+          TSV
+        </button>
+        <button
+          type="button"
           title="Download table as CSV"
           onClick={() => {
             const rows = extract();
@@ -173,6 +253,19 @@ function TableFrame({ children }: { children?: React.ReactNode }) {
           className="cursor-pointer rounded px-1.5 py-0.5 text-[10px] text-ink-muted hover:bg-paper hover:text-ink"
         >
           CSV
+        </button>
+        <button
+          type="button"
+          title="Download table as Markdown"
+          onClick={() => {
+            const rows = extract();
+            if (rows.length) {
+              downloadFile("table.md", toMarkdownTable(rows), "text/markdown;charset=utf-8");
+            }
+          }}
+          className="cursor-pointer rounded px-1.5 py-0.5 text-[10px] text-ink-muted hover:bg-paper hover:text-ink"
+        >
+          MD
         </button>
       </div>
       <div className="overflow-x-auto rounded-lg border border-line">

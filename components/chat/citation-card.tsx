@@ -56,6 +56,9 @@ export function CitationCard({
     block.data?.text ??
     (page.data?.pages[0]?.markdown ?? "").replace(/[#*>-]/g, "").slice(0, 320);
   const blockType = citation.blockType ?? block.data?.block_type;
+  const kind = blockKind(blockType);
+  // A figure or table is more useful cropped than as a whole page.
+  const crop = kind !== "text" && bbox ? bbox : null;
   const totalPages = meta.data?.pageNum;
 
   useEffect(() => {
@@ -145,8 +148,26 @@ export function CitationCard({
       </div>
 
       <div className="flex gap-3 p-3">
-        <div className="relative w-20 shrink-0 overflow-hidden rounded-md border border-line bg-white">
-          {image.data?.url ? (
+        <div
+          className={cn(
+            "relative shrink-0 overflow-hidden rounded-md border border-line bg-white",
+            crop ? "w-24" : "w-20",
+          )}
+        >
+          {image.data?.url && crop ? (
+            <div
+              role="img"
+              aria-label={`${kind} on page ${citation.page}`}
+              className="block w-full"
+              style={{
+                aspectRatio: `${Math.max(1, crop[2] - crop[0])} / ${Math.max(1, crop[3] - crop[1])}`,
+                backgroundImage: `url(${image.data.url})`,
+                backgroundSize: `${(1000 / Math.max(1, crop[2] - crop[0])) * 100}% ${(1000 / Math.max(1, crop[3] - crop[1])) * 100}%`,
+                backgroundPosition: `${crop[2] >= 1000 ? 0 : (crop[0] / (1000 - (crop[2] - crop[0]))) * 100}% ${crop[3] >= 1000 ? 0 : (crop[1] / (1000 - (crop[3] - crop[1]))) * 100}%`,
+                backgroundRepeat: "no-repeat",
+              }}
+            />
+          ) : image.data?.url ? (
             <>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={image.data.url} alt={`Page ${citation.page}`} className="block w-full" />
@@ -197,6 +218,15 @@ export function CitationCard({
   );
 }
 
+type BlockKind = "text" | "figure" | "table";
+
+function blockKind(value: string | undefined): BlockKind {
+  if (!value) return "text";
+  if (/image|figure|chart|diagram|photo/.test(value)) return "figure";
+  if (/table/.test(value)) return "table";
+  return "text";
+}
+
 const BLOCK_LABELS: Record<string, string> = {
   text: "Text block",
   table: "Table",
@@ -210,6 +240,9 @@ const BLOCK_LABELS: Record<string, string> = {
 };
 
 function blockLabel(value: string): string {
+  const kind = blockKind(value);
+  if (kind === "figure") return "Cited figure";
+  if (kind === "table") return "Cited table";
   return BLOCK_LABELS[value] ?? value.charAt(0).toUpperCase() + value.slice(1);
 }
 

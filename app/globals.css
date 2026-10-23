@@ -20,10 +20,96 @@
   --color-brand: #b4622b;
   --color-brand-deep: #8a4517;
   --color-brand-soft: #fbf1e6;
+  /* The user's own turn: neutral in light, lifted in dark. */
+  --color-bubble: #191817;
+  --color-bubble-ink: #f7f5f1;
+  --color-scrim: color-mix(in srgb, #191817 45%, transparent);
 
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
   --font-serif: var(--font-source-serif), "Iowan Old Style", Georgia, serif;
+}
+
+/*
+ * Dark theme: the same token names, redefined. Tailwind utilities compile to
+ * `var(--color-*)`, so overriding here re-themes every component without
+ * touching them. `.dark` sits on <html> and wins by source order.
+ */
+.dark {
+  --color-paper: #09090b;
+  --color-surface: #18181b;
+  --color-ink: #fafafa;
+  --color-ink-muted: #a1a1aa;
+  --color-line: #27272a;
+  --color-brand: #7aa7e8;
+  --color-brand-deep: #a9c8f2;
+  --color-brand-soft: #16233a;
+  --color-bubble: #27272a;
+  --color-bubble-ink: #fafafa;
+  --color-scrim: color-mix(in srgb, #000 60%, transparent);
+}
+
+/* ------------------------------------------------------------- appearance */
+
+/* Transcript typeface: the reading identity, or the official's sans column. */
+html[data-transcript="sans"] .md-body,
+html[data-transcript="sans"] .md-body-compact {
+  font-family: var(--font-sans);
+  letter-spacing: 0;
+}
+
+html[data-transcript="sans"] .md-body {
+  font-size: 15.5px;
+  line-height: 1.65;
+}
+
+html[data-density="compact"] .md-body {
+  font-size: 14.5px;
+  line-height: 1.6;
+}
+
+html[data-density="compact"] .md-body-compact {
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+/* ------------------------------------------------------------------ motion */
+
+@keyframes pi-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes pi-sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.pi-enter {
+  animation: pi-enter 160ms ease-out;
+}
+
+.pi-sheet-in {
+  animation: pi-sheet-in 200ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pi-enter,
+  .pi-sheet-in {
+    animation: none;
+  }
 }
 
 html,

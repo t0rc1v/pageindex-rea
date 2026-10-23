@@ -1,11 +1,15 @@
 "use client";
 
-import { ArrowDown, ChevronDown, Plus, Sparkles, X } from "lucide-react";
+import { ArrowDown, ChevronDown, Paperclip, Plus, Sparkles, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import { citationKey, parseCitations, splitStreamingTail } from "@/lib/citations";
 import type { Citation } from "@/lib/pageindex/types";
+import { useFetch } from "@/lib/client/hooks";
+import type { DocumentListResponse } from "@/lib/pageindex/types";
 import { Markdown } from "@/components/markdown";
+import { Onboarding } from "@/components/onboarding";
 import { cn } from "@/components/ui-kit";
 import { DocumentPanel, type OpenDoc } from "./document-panel";
 import { CitationCard, type CitationAnchor } from "./citation-card";
@@ -13,7 +17,15 @@ import { DocPicker } from "./doc-picker";
 import { MessageActions } from "./message-actions";
 import { Sources } from "./sources";
 import { ToolStep } from "./tool-step";
-import { turnDuration, turnText, useChat, type ChatDoc, type ChatTurn } from "./use-chat";
+import { useTypewriter } from "./use-typewriter";
+import {
+  activeRun,
+  runDuration,
+  runText,
+  useChat,
+  type ChatDoc,
+  type ChatTurn,
+} from "./use-chat";
 
 const SUGGESTIONS = [
   "Summarize the key findings and cite where they come from.",
@@ -55,15 +67,30 @@ export function ChatWorkspace({ chatId, initialDocs }: { chatId?: string; initia
   const [input, setInput] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [atBottom, setAtBottom] = useState(true);
+  // One cheap probe decides between onboarding and the prompt suggestions.
+  const library = useFetch<DocumentListResponse>("/api/docs?limit=1", { staleTime: 60_000 });
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const answerNodes = useRef(new Map<string, HTMLElement>());
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     const element = scrollRef.current;
     if (!element || !atBottom) return;
     element.scrollTop = element.scrollHeight;
   }, [chat.turns, atBottom]);
+
+  // ⌘/Ctrl+K jumps to the composer wherever focus is.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        composerRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const onScroll = useCallback(() => {
     const element = scrollRef.current;
@@ -116,6 +143,34 @@ export function ChatWorkspace({ chatId, initialDocs }: { chatId?: string; initia
     setActiveDocId(citation.docId);
   }, []);
 
+  const addPageToChat = useCallback(
+    async (doc: OpenDoc) => {
+      const existing = chat.context.some(
+        (item) => item.docId === doc.docId && item.page === doc.page,
+      );
+      if (existing) {
+        toast.info(`Page ${doc.page} is already attached`);
+        return;
+      }
+      try {
+        const response = await fetch(
+          `/api/docs/${encodeURIComponent(doc.docId)}/pages?from=${doc.page}&to=${doc.page}`,
+        );
+        if (!response.ok) throw new Error(`Page fetch failed (${response.status})`);
+        const payload = (await response.json()) as {
+          pages: Array<{ page_index: number; markdown: string }>;
+        };
+        const text = payload.pages?.[0]?.markdown ?? "";
+        if (!text.trim()) throw new Error("That page has no text to attach");
+        chat.addContext({ docId: doc.docId, docName: doc.name, page: doc.page, text });
+        toast.success(`Page ${doc.page} attached to your next question`);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Could not attach the page");
+      }
+    },
+    [chat],
+  );
+
   const submit = (text: string) => {
     const value = text.trim();
     if (!value) return;
@@ -134,7 +189,7 @@ export function ChatWorkspace({ chatId, initialDocs }: { chatId?: string; initia
   const lastTurnId = chat.turns[chat.turns.length - 1]?.id;
   const question = useMemo(() => {
     const [first] = chat.turns;
-    return first ? turnText(first).answer : undefined;
+    return first ? runText(activeRun(first)).answer : undefined;
   }, [chat.turns]);
 
   return (
@@ -143,27 +198,31 @@ export function ChatWorkspace({ chatId, initialDocs }: { chatId?: string; initia
         <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-3xl px-4 py-6">
             {chat.turns.length === 0 ? (
-              <div className="flex flex-col gap-5 pt-4">
-                <div>
-                  <h1 className="font-serif text-[26px] leading-snug text-ink">Ask your documents</h1>
-                  <p className="mt-1.5 max-w-lg text-[13.5px] leading-relaxed text-ink-muted">
-                    PageIndex reads the tree it built for each document, opens the pages it needs,
-                    and answers with citations you can open beside the conversation.
-                  </p>
+              library.data && library.data.total === 0 ? (
+                <Onboarding onUploaded={() => library.reload()} />
+              ) : (
+                <div className="flex flex-col gap-5 pt-4">
+                  <div>
+                    <h1 className="font-serif text-[26px] leading-snug text-ink">Ask your documents</h1>
+                    <p className="mt-1.5 max-w-lg text-[13.5px] leading-relaxed text-ink-muted">
+                      PageIndex reads the tree it built for each document, opens the pages it needs,
+                      and answers with citations you can open beside the conversation.
+                    </p>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    {SUGGESTIONS.map((suggestion) => (
+                      <button
+                        key={suggestion}
+                        type="button"
+                        onClick={() => submit(suggestion)}
+                        className="cursor-pointer rounded-xl border border-line bg-surface px-3 py-2 text-left text-[13px] leading-snug text-ink transition-colors hover:border-ink/25 hover:bg-paper"
+                      >
+                        {suggestion}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div className="flex flex-col gap-2">
-                  {SUGGESTIONS.map((suggestion) => (
-                    <button
-                      key={suggestion}
-                      type="button"
-                      onClick={() => submit(suggestion)}
-                      className="cursor-pointer rounded-xl border border-line bg-surface px-3 py-2 text-left text-[13px] leading-snug text-ink transition-colors hover:border-ink/25 hover:bg-paper"
-                    >
-                      {suggestion}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              )
             ) : (
               <div className="flex flex-col gap-8">
                 {chat.turns.map((turn) => (
@@ -181,6 +240,8 @@ export function ChatWorkspace({ chatId, initialDocs }: { chatId?: string; initia
                     onPreview={(citation, rect) => setPreview({ citation, rect })}
                     onOpenPage={openCitation}
                     onRegenerate={chat.regenerate}
+                    onSelectRun={(index) => chat.selectRun(turn.id, index)}
+                    onFeedback={(value) => chat.setFeedback(turn.id, value)}
                     onEdit={() => setEditingId(turn.id)}
                     editing={editingId === turn.id}
                     onCancelEdit={() => setEditingId(null)}
@@ -209,8 +270,31 @@ export function ChatWorkspace({ chatId, initialDocs }: { chatId?: string; initia
           )}
 
           <div className="mx-auto w-full max-w-3xl">
-            <div className="rounded-xl border border-line bg-surface transition-colors focus-within:border-ink/30">
+            <div className="rounded-[16px] border border-line bg-surface transition-colors focus-within:border-ink/30">
+              {chat.context.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">
+                  {chat.context.map((item) => (
+                    <span
+                      key={`${item.docId}-${item.page}`}
+                      className="flex max-w-full items-center gap-1 rounded-md border border-line bg-paper px-1.5 py-0.5 text-[10.5px] text-ink-muted"
+                    >
+                      <Paperclip className="size-2.5 shrink-0" aria-hidden />
+                      <span className="truncate">{item.docName}</span>
+                      <span className="shrink-0 font-mono">p.{item.page}</span>
+                      <button
+                        type="button"
+                        aria-label={`Remove page ${item.page} from context`}
+                        onClick={() => chat.removeContext(item.docId, item.page)}
+                        className="cursor-pointer rounded p-0.5 hover:text-ink"
+                      >
+                        <X className="size-2.5" aria-hidden />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
               <textarea
+                ref={composerRef}
                 value={input}
                 onChange={(event) => {
                   setInput(event.target.value);
@@ -226,7 +310,7 @@ export function ChatWorkspace({ chatId, initialDocs }: { chatId?: string; initia
                 }}
                 rows={1}
                 placeholder={chat.busy ? "AI is thinking…" : "Ask a question…"}
-                className="block max-h-44 min-h-[52px] w-full resize-none bg-transparent px-3.5 pt-3 text-[13.5px] leading-relaxed text-ink outline-none placeholder:text-ink-muted/70"
+                className="block max-h-44 min-h-[95px] w-full resize-none bg-transparent px-3.5 pt-3 text-[13.5px] leading-relaxed text-ink outline-none placeholder:text-ink-muted/70"
               />
               <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-1">
                 <div className="relative flex min-w-0 items-center gap-1.5">
@@ -283,7 +367,7 @@ export function ChatWorkspace({ chatId, initialDocs }: { chatId?: string; initia
               </div>
             </div>
             <p className="mt-1 hidden text-center text-[10px] text-ink-muted/70 sm:block">
-              Enter to send · Shift+Enter for a new line
+              Enter to send · Shift+Enter for a new line · ⌘K to jump here
             </p>
           </div>
         </div>
@@ -308,6 +392,7 @@ export function ChatWorkspace({ chatId, initialDocs }: { chatId?: string; initia
             setOpenDocs([]);
             setActiveDocId(null);
           }}
+          onAddPage={addPageToChat}
         />
       )}
 
@@ -328,6 +413,8 @@ function Turn({
   onPreview,
   onOpenPage,
   onRegenerate,
+  onSelectRun,
+  onFeedback,
   onEdit,
   editing,
   onCancelEdit,
@@ -343,22 +430,25 @@ function Turn({
   onPreview: (citation: Citation, rect: CitationAnchor["rect"]) => void;
   onOpenPage: (citation: Citation) => void;
   onRegenerate: () => void;
-  onEdit: (text: string) => void;
+  onSelectRun: (index: number) => void;
+  onFeedback: (value: "up" | "down") => void;
+  onEdit: () => void;
   editing: boolean;
   onCancelEdit: () => void;
   onSaveEdit: (text: string) => void;
   question?: string;
 }) {
-  const { answer, process } = turnText(turn);
-  // `pending` is the half-received citation tag splitStreamingTail holds back;
-  // it is rendered on the next token, so we only paint `stable`.
+  const run = activeRun(turn);
+  const { answer } = runText(run);
   const stable = turn.streaming ? splitStreamingTail(answer).stable : answer;
-  const citations = useMemo(() => mergeCitations(answer, turn.citations), [answer, turn.citations]);
-  const { thought } = turnDuration(turn);
+  const revealed = useTypewriter(stable, turn.streaming);
+  const citations = useMemo(() => mergeCitations(answer, run.citations), [answer, run.citations]);
+  const { thought } = runDuration(run);
   const [reasoningOpen, setReasoningOpen] = useState(false);
+  const { process } = runText(run);
 
   if (turn.role === "user") {
-    const text = turnText(turn).answer;
+    const text = runText(run).answer;
     if (editing) {
       return (
         <div className="group/message flex flex-col items-end gap-1">
@@ -368,7 +458,20 @@ function Turn({
     }
     return (
       <div className="group/message flex flex-col items-end gap-1">
-        <p className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-ink px-3.5 py-2 text-[13.5px] leading-relaxed text-paper">
+        {turn.docs && turn.docs.length > 0 && (
+          <div className="flex max-w-[85%] flex-wrap justify-end gap-1">
+            {turn.docs.map((doc) => (
+              <span
+                key={doc.id}
+                className="flex min-w-0 items-center gap-1.5 rounded-xl border border-line bg-surface px-2 py-1 text-[11px] text-ink-muted"
+              >
+                <Paperclip className="size-3 shrink-0" aria-hidden />
+                <span className="max-w-[190px] truncate text-ink">{doc.name}</span>
+              </span>
+            ))}
+          </div>
+        )}
+        <p className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-bubble px-3.5 py-2 text-[13.5px] leading-relaxed text-bubble-ink">
           {text}
         </p>
         <MessageActions role="user" text={text} onEdit={onEdit} />
@@ -376,7 +479,7 @@ function Turn({
     );
   }
 
-  const runningTool = turn.tools.some((tool) => tool.status === "start");
+  const runningTool = run.tools.some((tool) => tool.status === "start");
 
   return (
     <div className="group/message flex flex-col gap-1.5">
@@ -389,11 +492,7 @@ function Turn({
             className="flex cursor-pointer items-center gap-1.5 py-0.5 text-[12.5px] text-ink-muted transition-colors hover:text-ink"
           >
             <Sparkles className="size-3.5" aria-hidden />
-            <span>
-              {process
-                ? `Thought for ${Math.max(1, Math.round(thought ?? 1))}s`
-                : "Thinking…"}
-            </span>
+            <span>{process ? `Thought for ${Math.max(1, Math.round(thought ?? 1))}s` : "Thinking…"}</span>
             {process && (
               <ChevronDown
                 className={cn(
@@ -405,16 +504,16 @@ function Turn({
             )}
           </button>
           {reasoningOpen && process && (
-            <p className="mt-1 whitespace-pre-wrap border-l border-line pl-2.5 text-[12.5px] leading-relaxed text-ink-muted">
+            <p className="pi-enter mt-1 whitespace-pre-wrap border-l border-line pl-2.5 text-[12.5px] leading-relaxed text-ink-muted">
               {process}
             </p>
           )}
         </div>
       )}
 
-      {turn.tools.length > 0 && (
+      {run.tools.length > 0 && (
         <ul className="flex flex-col">
-          {turn.tools.map((tool, index) => (
+          {run.tools.map((tool, index) => (
             <ToolStep
               key={tool.id ?? `${tool.name}-${index}`}
               tool={tool}
@@ -430,19 +529,19 @@ function Turn({
         </ul>
       )}
 
-      {stable && (
+      {revealed && (
         <div ref={answerRef} className="group/answer">
           {/* `pending` is the half-received citation tag splitStreamingTail holds
               back; rendering it would flash raw `<doc=...>` markup. */}
-          <Markdown compact onCite={onPreview} citations={turn.citations}>
-            {stable}
+          <Markdown compact onCite={onPreview} citations={run.citations}>
+            {revealed}
           </Markdown>
         </div>
       )}
 
-      {turn.error && (
-        <p className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[12px] leading-relaxed text-red-900">
-          {turn.error}
+      {run.error && (
+        <p className="rounded-lg border border-red-300 bg-red-50 px-2.5 py-1.5 text-[12px] leading-relaxed text-red-900 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-200">
+          {run.error}
         </p>
       )}
 
@@ -454,10 +553,13 @@ function Turn({
               text={answer}
               citations={citations}
               question={question}
-              at={turn.timings?.finishedAt}
+              at={run.timings?.finishedAt}
               getNode={getNode}
               onRegenerate={isLast ? onRegenerate : undefined}
               canRegenerate={!busy}
+              branch={{ index: turn.active, total: turn.runs.length, onSelect: onSelectRun }}
+              feedback={turn.feedback}
+              onFeedback={onFeedback}
             />
           )}
           <Sources citations={citations} onPreview={onPreview} onOpenPage={onOpenPage} />

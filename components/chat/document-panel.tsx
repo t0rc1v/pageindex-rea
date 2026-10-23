@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Info, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Info, Paperclip, X } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useMemo, useRef, useState } from "react";
 
@@ -47,6 +47,7 @@ export function DocumentPanel({
   onPage,
   onClose,
   onCloseAll,
+  onAddPage,
   className,
 }: {
   docs: OpenDoc[];
@@ -55,6 +56,8 @@ export function DocumentPanel({
   onPage: (docId: string, page: number) => void;
   onClose: (docId: string) => void;
   onCloseAll: () => void;
+  /** Pin the open page into the next question's context. */
+  onAddPage?: (doc: OpenDoc) => void;
   className?: string;
 }) {
   const [width, setWidth] = useState(readWidth);
@@ -171,6 +174,17 @@ export function DocumentPanel({
           </div>
 
           <div className="flex shrink-0 items-center gap-0.5">
+            {onAddPage && (
+              <button
+                type="button"
+                onClick={() => onAddPage(doc)}
+                aria-label="Add page to chat"
+                title="Add page to chat"
+                className="cursor-pointer rounded-md p-1.5 text-ink-muted hover:bg-paper hover:text-ink"
+              >
+                <Paperclip className="size-3.5" aria-hidden />
+              </button>
+            )}
             <div className="relative">
               <button
                 type="button"
