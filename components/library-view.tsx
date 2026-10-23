@@ -4,14 +4,18 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useRef, useState } from "react";
 
-import { ApiError, apiSend, apiUpload } from "@/lib/client/api";
-import { useFetch } from "@/lib/client/hooks";
+import { ApiError, apiSend, apiUploadWithProgress } from "@/lib/client/api";
+import { useFetch, useLocalFlag } from "@/lib/client/hooks";
+import { summarizeEntries, type UploadResult } from "@/lib/client/upload";
 import { formatRelative, initials, isPending } from "@/lib/format";
 import type {
   DocumentListResponse,
   FolderListResponse,
   PageIndexDocument,
 } from "@/lib/pageindex/types";
+import { toast } from "sonner";
+
+import { useConfirm } from "@/components/ui/confirm";
 import {
   Button,
   EmptyState,
@@ -30,12 +34,21 @@ const noPendingDocuments = (data: DocumentListResponse) =>
 
 export function LibraryView() {
   const router = useRouter();
+  const confirm = useConfirm();
+  const [view, setView] = useLocalFlag("pageindex-reader/library-view", false);
   const [folder, setFolder] = useState<FolderFilter>("all");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pendingUploads, setPendingUploads] = useState<
-    Array<{ id: string; name: string; state: "uploading" | "queued" | "error"; message?: string }>
+    Array<{
+      id: string;
+      name: string;
+      state: "uploading" | "queued" | "error";
+      message?: string;
+      progress?: number;
+    }>
   >([]);
+  const [renaming, setRenaming] = useState<PageIndexDocument | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [creatingFolder, setCreatingFolder] = useState(false);
@@ -78,10 +91,26 @@ export function LibraryView() {
         if (folder !== "all" && folder !== "root") form.set("folder_id", folder);
 
         try {
-          await apiUpload<{ doc_id: string }>(form);
+          const result = await apiUploadWithProgress<UploadResult>(form, (fraction) => {
+            setPendingUploads((current) =>
+              current.map((item) =>
+                item.id === id ? { ...item, progress: Math.round(fraction * 100) } : item,
+              ),
+            );
+          });
+          const bundle = summarizeEntries(result);
+          if (bundle.total > 0) {
+            if (bundle.failed > 0) {
+              toast.warning(
+                `${file.name}: ${bundle.ok} of ${bundle.total} files queued, ${bundle.failed} failed`,
+              );
+            } else {
+              toast.success(`${file.name}: ${bundle.total} files queued for indexing`);
+            }
+          }
           setPendingUploads((current) =>
             current.map((item) =>
-              item.id === id ? { ...item, state: "queued" } : item,
+              item.id === id ? { ...item, state: "queued", progress: 100 } : item,
             ),
           );
           docs.reload();
@@ -109,7 +138,13 @@ export function LibraryView() {
   };
 
   const remove = async (doc: PageIndexDocument) => {
-    if (!window.confirm(`Delete “${doc.name}” and its tree index?`)) return;
+    const ok = await confirm({
+      title: `Delete “${doc.name}”?`,
+      description: "The document and its tree index are removed from PageIndex Cloud. This cannot be undone.",
+      confirmLabel: "Delete",
+      tone: "danger",
+    });
+    if (!ok) return;
     setDeleting(doc.id);
     try {
       await apiSend(`/api/docs/${encodeURIComponent(doc.id)}`, "DELETE");
@@ -120,7 +155,7 @@ export function LibraryView() {
       });
       docs.reload();
     } catch (error) {
-      window.alert(error instanceof ApiError ? error.message : "Delete failed");
+      toast.error(error instanceof ApiError ? error.message : "Delete failed");
     } finally {
       setDeleting(null);
     }
@@ -169,7 +204,7 @@ export function LibraryView() {
         event.preventDefault();
         setDragging(false);
         const files = Array.from(event.dataTransfer.files).filter((file) =>
-          file.name.toLowerCase().endsWith(".pdf"),
+          /\.(pdf|docx?|pptx?|csv|md|markdown|txt|zip)$/i.test(file.name),
         );
         if (files.length > 0) void upload(files);
       }}
@@ -195,6 +230,27 @@ export function LibraryView() {
               ⌕
             </span>
           </label>
+          <div className="flex items-center rounded-xl border border-line bg-surface p-0.5">
+            {([
+              { key: false, label: "Grid view", icon: "▦" },
+              { key: true, label: "List view", icon: "☰" },
+            ] as const).map((option) => (
+              <button
+                key={String(option.key)}
+                type="button"
+                onClick={() => setView(option.key)}
+                aria-pressed={view === option.key}
+                aria-label={option.label}
+                title={option.label}
+                className={cn(
+                  "cursor-pointer rounded-lg px-2 py-1 text-[12px] transition-colors",
+                  view === option.key ? "bg-ink text-paper" : "text-ink-muted hover:text-ink",
+                )}
+              >
+                {option.icon}
+              </button>
+            ))}
+          </div>
           <input
             ref={inputRef}
             type="file"
@@ -318,7 +374,9 @@ export function LibraryView() {
                   <span className="truncate text-ink">{item.name}</span>
                   <span className="truncate">
                     {item.state === "uploading"
-                      ? "uploading…"
+                      ? item.progress !== undefined
+                        ? `uploading ${item.progress}%`
+                        : "uploading…"
                       : item.state === "queued"
                         ? "submitted — indexing in the background"
                         : item.message}
@@ -395,13 +453,21 @@ export function LibraryView() {
               }
             />
           ) : (
-            <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <ul
+              className={cn(
+                view
+                  ? "flex flex-col gap-1.5"
+                  : "grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3",
+              )}
+            >
               {filtered.map((doc) => (
                 <li key={doc.id}>
                   <DocumentCard
                     doc={doc}
+                    view={view ? "list" : "grid"}
                     selected={selected.has(doc.id)}
                     onToggle={() => toggleSelected(doc.id)}
+                    onRename={() => setRenaming(doc)}
                     onDelete={() => void remove(doc)}
                     deleting={deleting === doc.id}
                   />
@@ -411,6 +477,17 @@ export function LibraryView() {
           )}
         </section>
       </div>
+
+      {renaming && (
+        <RenameDialog
+          doc={renaming}
+          onClose={() => setRenaming(null)}
+          onSaved={() => {
+            setRenaming(null);
+            docs.reload();
+          }}
+        />
+      )}
 
       {dragging && (
         <div className="pointer-events-none fixed inset-0 z-40 grid place-items-center bg-ink/40 backdrop-blur-sm">
@@ -456,18 +533,78 @@ function FolderRow({
 
 function DocumentCard({
   doc,
+  view,
   selected,
   onToggle,
+  onRename,
   onDelete,
   deleting,
 }: {
   doc: PageIndexDocument;
+  view: "grid" | "list";
   selected: boolean;
   onToggle: () => void;
+  onRename: () => void;
   onDelete: () => void;
   deleting: boolean;
 }) {
   const ready = doc.status === "completed";
+
+  if (view === "list") {
+    return (
+      <div
+        className={cn(
+          "group flex items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-1.5 transition-colors",
+          selected ? "border-brand/50 ring-1 ring-brand/30" : "hover:border-ink/20",
+        )}
+      >
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-label={selected ? "Deselect document" : "Select document"}
+          className={cn(
+            "grid size-4 shrink-0 cursor-pointer place-items-center rounded-[4px] border text-[9px]",
+            selected ? "border-brand bg-brand text-white" : "border-line text-transparent",
+          )}
+        >
+          ✓
+        </button>
+        <span className="grid size-6 shrink-0 place-items-center rounded border border-line bg-paper font-mono text-[9px] text-ink-muted">
+          {initials(doc.name)}
+        </span>
+        <Link
+          href={ready ? `/doc/${encodeURIComponent(doc.id)}` : "#"}
+          className={cn("min-w-0 flex-1 truncate text-[12.5px] text-ink", !ready && "pointer-events-none opacity-70")}
+          title={doc.name}
+        >
+          {doc.name}
+        </Link>
+        <span className="hidden shrink-0 font-mono text-[10px] text-ink-muted/80 sm:block">
+          {doc.pageNum ? `${doc.pageNum}p · ` : ""}
+          {formatRelative(doc.createdAt)}
+        </span>
+        <StatusBadge status={doc.status} />
+        <button
+          type="button"
+          onClick={onRename}
+          aria-label="Rename document"
+          title="Rename"
+          className="grid size-6 cursor-pointer place-items-center rounded-md text-ink-muted opacity-0 transition-opacity hover:bg-paper hover:text-ink group-hover:opacity-100"
+        >
+          ✎
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          disabled={deleting}
+          aria-label="Delete document"
+          className="grid size-6 cursor-pointer place-items-center rounded-md text-ink-muted opacity-0 transition-opacity hover:bg-red-50 hover:text-red-700 disabled:opacity-40 group-hover:opacity-100"
+        >
+          {deleting ? <Spinner className="size-3" /> : "✕"}
+        </button>
+      </div>
+    );
+  }
 
   return (
     <Panel
@@ -524,6 +661,15 @@ function DocumentCard({
           <StatusBadge status={doc.status} />
           <button
             type="button"
+            onClick={onRename}
+            aria-label="Rename document"
+            title="Rename"
+            className="grid size-6 cursor-pointer place-items-center rounded-md text-ink-muted opacity-0 transition-opacity hover:bg-paper hover:text-ink group-hover:opacity-100"
+          >
+            ✎
+          </button>
+          <button
+            type="button"
             onClick={onDelete}
             disabled={deleting}
             aria-label="Delete document"
@@ -534,5 +680,94 @@ function DocumentCard({
         </div>
       </div>
     </Panel>
+  );
+}
+
+/** Rename / re-describe a document (one PATCH over the documented metadata API). */
+function RenameDialog({
+  doc,
+  onClose,
+  onSaved,
+}: {
+  doc: PageIndexDocument;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(doc.name);
+  const [description, setDescription] = useState(doc.description ?? "");
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    const next = name.trim();
+    if (!next) return;
+    setSaving(true);
+    try {
+      await apiSend(`/api/docs/${encodeURIComponent(doc.id)}`, "PATCH", {
+        name: next,
+        description: description.trim() || null,
+      });
+      toast.success("Document updated");
+      onSaved();
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Could not update the document");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4 backdrop-blur-sm"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Rename document"
+        className="pi-enter w-full max-w-md overflow-hidden rounded-xl border border-line bg-surface shadow-2xl"
+      >
+        <div className="border-b border-line px-4 py-3">
+          <h2 className="text-[14px] font-medium text-ink">Document details</h2>
+          <p className="mt-0.5 text-[11.5px] text-ink-muted">
+            Rename the file or rewrite the summary the model reads.
+          </p>
+        </div>
+        <div className="flex flex-col gap-3 px-4 py-3">
+          <label className="flex flex-col gap-1">
+            <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-muted">
+              Name
+            </span>
+            <input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              autoFocus
+              className="h-9 rounded-lg border border-line bg-paper px-2.5 text-[13px] text-ink outline-none focus:border-ink/30"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-muted">
+              Description
+            </span>
+            <textarea
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              rows={3}
+              className="resize-none rounded-lg border border-line bg-paper px-2.5 py-2 text-[12.5px] leading-relaxed text-ink outline-none focus:border-ink/30"
+              placeholder="One line the library and the model can use."
+            />
+          </label>
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t border-line bg-paper/60 px-3 py-2.5">
+          <Button variant="secondary" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" size="sm" onClick={() => void save()} disabled={saving || !name.trim()}>
+            {saving ? <Spinner className="size-3" /> : null} Save
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }

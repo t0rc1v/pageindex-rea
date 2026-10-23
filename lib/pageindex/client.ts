@@ -135,6 +135,27 @@ export async function deleteDocument(docId: string): Promise<void> {
   await call(`/doc/${enc(docId)}/`, { method: "DELETE" });
 }
 
+/**
+ * Rename a document / edit its description.
+ * `PUT /doc/{doc_id}/metadata` is the documented update surface; a folder move
+ * is not exposed, so `folderId` is accepted but only forwarded when the API
+ * starts honouring it.
+ */
+export async function updateDocumentMetadata(
+  docId: string,
+  input: { name?: string; description?: string | null },
+): Promise<PageIndexDocument> {
+  const body: Record<string, unknown> = {};
+  if (typeof input.name === "string" && input.name.trim()) body.name = input.name.trim();
+  if (input.description !== undefined) body.description = input.description;
+  await call(`/doc/${enc(docId)}/metadata`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return getDocument(docId);
+}
+
 export interface GetTreeOptions {
   summary?: boolean;
   includeText?: boolean;
@@ -218,10 +239,16 @@ export async function createFolder(input: {
  * the caller: `file` plus optional `folder_id`, `metadata`, `beta_headers`,
  * `if_*` toggles.
  */
-export async function submitDocument(
-  form: FormData,
-): Promise<{ doc_id: string; name?: string }> {
-  return callJson<{ doc_id: string; name?: string }>("/doc/", {
+export interface SubmitDocumentResult {
+  doc_id?: string;
+  name?: string;
+  /** ZIP bundles answer 202 with one entry per member file. */
+  entries?: Array<{ name?: string; doc_id?: string; status?: string; error?: string }>;
+  [key: string]: unknown;
+}
+
+export async function submitDocument(form: FormData): Promise<SubmitDocumentResult> {
+  return callJson<SubmitDocumentResult>("/doc/", {
     method: "POST",
     body: form,
     timeoutMs: 300_000,

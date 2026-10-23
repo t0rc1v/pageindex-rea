@@ -141,7 +141,8 @@ async function chatStream(req, res) {
 
   send({ block_metadata: { type: "text_block_start", block_index: 2 } });
   const tail =
-    "Supply concentration is the principal operational risk. <cite doc=\"Annual Report 2024.pdf\" page=\"3\" block=\"p3_text_1\"/>";
+    "Supply concentration is the principal operational risk. <cite doc=\"Annual Report 2024.pdf\" page=\"3\" block=\"p3_text_1\"/>\n\n" +
+    "```mermaid\nflowchart LR\n  A[Question] --> B{Tree walk}\n  B -->|section| C[Pages]\n  C --> D[Cited answer]\n```\n\n| Metric | FY24 | FY25 |\n| --- | --- | --- |\n| Revenue | 3.7 | 4.2 |\n| Margin | 71% | 74% |";
   for (const piece of chunks(tail)) {
     text(piece);
     await sleep(8);
@@ -205,6 +206,13 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "DELETE" && path.startsWith("/doc/")) {
     return json(res, 200, { message: "deleted" });
+  }
+
+  if (req.method === "PUT" && path === `/doc/${doc.id}/metadata`) {
+    const body = JSON.parse(await readBody(req));
+    if (typeof body.name === "string" && body.name.trim()) doc.name = body.name.trim();
+    if (body.description !== undefined) doc.description = body.description;
+    return json(res, 200, doc);
   }
 
   if (req.method === "GET" && path === `/doc/${doc.id}/metadata/`) {

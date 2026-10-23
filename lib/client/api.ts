@@ -44,7 +44,7 @@ export async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> 
 
 export async function apiSend<T>(
   path: string,
-  method: "POST" | "DELETE" | "PUT",
+  method: "POST" | "DELETE" | "PUT" | "PATCH",
   body?: unknown,
 ): Promise<T> {
   const response = await fetch(path, {
@@ -70,4 +70,44 @@ export async function apiUpload<T>(form: FormData): Promise<T> {
   });
   if (!response.ok) throw await toError(response);
   return (await response.json()) as T;
+}
+
+/**
+ * Upload with progress. `fetch` still cannot report request progress, so this
+ * one path uses XHR; the payload shape and error mapping stay identical.
+ */
+export function apiUploadWithProgress<T>(
+  form: FormData,
+  onProgress?: (fraction: number) => void,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("POST", "/api/upload");
+    request.upload.onprogress = (event) => {
+      if (event.lengthComputable && onProgress) onProgress(event.loaded / event.total);
+    };
+    request.onerror = () => reject(new ApiError("Upload failed", "INTERNAL", 0));
+    request.onload = () => {
+      let payload: unknown = null;
+      try {
+        payload = JSON.parse(request.responseText);
+      } catch {
+        /* non-JSON body */
+      }
+      if (request.status < 200 || request.status >= 300) {
+        const body = payload as ApiErrorPayload | null;
+        reject(
+          new ApiError(
+            body?.error ?? `Upload failed (${request.status})`,
+            body?.code ?? "INTERNAL",
+            body?.status ?? request.status,
+          ),
+        );
+        return;
+      }
+      onProgress?.(1);
+      resolve(payload as T);
+    };
+    request.send(form);
+  });
 }

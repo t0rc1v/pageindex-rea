@@ -20,6 +20,39 @@ export const ACCEPTED_EXTENSIONS = [
   ".zip",
 ] as const;
 
+/** Container the bytes actually are, inferred from the header. */
+type Container = "pdf" | "zip" | "ole" | "text" | "unknown";
+
+const EXPECTED_CONTAINER: Record<string, Container> = {
+  ".pdf": "pdf",
+  ".docx": "zip",
+  ".pptx": "zip",
+  ".zip": "zip",
+  ".doc": "ole",
+  ".ppt": "ole",
+  ".csv": "text",
+  ".md": "text",
+  ".markdown": "text",
+  ".txt": "text",
+};
+
+/**
+ * Trust the bytes, not the extension: browsers happily rename anything to .pdf,
+ * and a mislabelled upload costs an indexing run to discover.
+ */
+async function sniffContainer(file: File): Promise<Container> {
+  const head = new Uint8Array(await file.slice(0, 512).arrayBuffer());
+  if (head.length === 0) return "unknown";
+  const startsWith = (bytes: number[]) => bytes.every((byte, index) => head[index] === byte);
+  if (startsWith([0x25, 0x50, 0x44, 0x46])) return "pdf"; // %PDF
+  if (startsWith([0x50, 0x4b, 0x03, 0x04]) || startsWith([0x50, 0x4b, 0x05, 0x06])) {
+    return "zip"; // OOXML and .zip
+  }
+  if (startsWith([0xd0, 0xcf, 0x11, 0xe0])) return "ole"; // legacy Office
+  for (const byte of head) if (byte === 0) return "unknown";
+  return "text";
+}
+
 function extensionOf(name: string): string {
   const match = name.toLowerCase().match(/\.[a-z0-9]+$/);
   return match ? match[0] : "";
@@ -67,6 +100,19 @@ export async function POST(request: Request) {
       return jsonResponse(
         {
           error: `Unsupported format "${extension || file.name}". Upload ${ACCEPTED_EXTENSIONS.join(", ")}.`,
+          code: "INTERNAL",
+          status: 415,
+        },
+        { status: 415 },
+      );
+    }
+
+    const expected = EXPECTED_CONTAINER[extension];
+    const actual = await sniffContainer(file);
+    if (expected && actual !== "unknown" && expected !== actual) {
+      return jsonResponse(
+        {
+          error: `“${file.name}” does not look like ${extension} (detected ${actual}). Rename it or re-export the file.`,
           code: "INTERNAL",
           status: 415,
         },

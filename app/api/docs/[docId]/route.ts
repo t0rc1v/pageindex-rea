@@ -1,4 +1,4 @@
-import { deleteDocument, getDocument } from "@/lib/pageindex/client";
+import { deleteDocument, getDocument, updateDocumentMetadata } from "@/lib/pageindex/client";
 import { errorResponse, jsonResponse } from "@/lib/server/http";
 
 /** GET /api/docs/:docId — document metadata. */
@@ -9,6 +9,32 @@ export async function GET(
   try {
     const { docId } = await ctx.params;
     return jsonResponse(await getDocument(docId));
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+/** PATCH /api/docs/:docId — rename / edit the description. */
+export async function PATCH(
+  request: Request,
+  ctx: RouteContext<"/api/docs/[docId]">,
+) {
+  try {
+    const { docId } = await ctx.params;
+    const body = (await request.json()) as { name?: unknown; description?: unknown };
+    if (body.name !== undefined && typeof body.name !== "string") {
+      return jsonResponse(
+        { error: "`name` must be a string.", code: "INTERNAL", status: 400 },
+        { status: 400 },
+      );
+    }
+    const updated = await updateDocumentMetadata(docId, {
+      ...(typeof body.name === "string" ? { name: body.name } : {}),
+      ...(body.description === null || typeof body.description === "string"
+        ? { description: body.description }
+        : {}),
+    });
+    return jsonResponse(updated);
   } catch (error) {
     return errorResponse(error);
   }
