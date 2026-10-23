@@ -10,6 +10,7 @@ import {
   saveChat,
   type StoredChat,
   type StoredTool,
+  type TurnTimings,
 } from "@/lib/chat-store";
 import type { ChatStreamEvent, Citation } from "@/lib/pageindex/types";
 import { stripCitations } from "@/components/markdown";
@@ -23,6 +24,7 @@ export interface ChatTurn {
   tools: StoredTool[];
   streaming: boolean;
   error?: string;
+  timings?: TurnTimings;
 }
 
 export interface ChatDoc {
@@ -41,7 +43,7 @@ function emptyTurn(role: "user" | "assistant", text = ""): ChatTurn {
   };
 }
 
-/** Answer text = the last prose block; earlier blocks are narration. */
+/** Answer text = the last prose block; earlier blocks are the model's narration. */
 export function turnText(turn: ChatTurn): { answer: string; process: string } {
   const indexes = Object.keys(turn.blocks)
     .map(Number)
@@ -55,6 +57,15 @@ export function turnText(turn: ChatTurn): { answer: string; process: string } {
     .join("\n\n")
     .trim();
   return { answer, process };
+}
+
+/** Seconds a turn spent before its first token / in total. */
+export function turnDuration(turn: ChatTurn): { thought?: number; total?: number } {
+  const t = turn.timings;
+  if (!t) return {};
+  const end = t.finishedAt ?? t.firstTokenAt ?? t.startedAt;
+  const thought = t.firstTokenAt ? (t.firstTokenAt - t.startedAt) / 1000 : undefined;
+  return { thought, total: (end - t.startedAt) / 1000 };
 }
 
 function toStored(
@@ -81,6 +92,7 @@ function toStored(
         citations: turn.citations,
         tools: turn.tools,
         ...(turn.error ? { error: turn.error } : {}),
+        ...(turn.timings ? { timings: turn.timings } : {}),
       };
     }),
   };
@@ -95,9 +107,13 @@ function fromStored(chat: StoredChat): ChatTurn[] {
       role: turn.role,
       blocks,
       citations: turn.citations,
-      tools: turn.tools,
+      tools: (turn.tools ?? []).map((tool) => ({
+        ...tool,
+        status: tool.status === "stop" || tool.status === "error" ? tool.status : "stop",
+      })),
       streaming: false,
       ...(turn.error ? { error: turn.error } : {}),
+      ...(turn.timings ? { timings: turn.timings } : {}),
     };
   });
 }
@@ -106,9 +122,13 @@ export interface UseChatResult {
   chatId: string | null;
   turns: ChatTurn[];
   docs: ChatDoc[];
+  /** Every document the server may cite — resolves a cited name to an id. */
+  library: ChatDoc[];
   setDocs: (docs: ChatDoc[]) => void;
   busy: boolean;
   send: (text: string) => void;
+  regenerate: () => void;
+  editAndResend: (turnId: string, text: string) => void;
   stop: () => void;
   reset: () => void;
 }
@@ -132,6 +152,7 @@ export function useChat(options: {
     const stored = getChat(options.chatId);
     return stored?.docs?.length ? stored.docs : options.initialDocs ?? [];
   });
+  const [library, setLibrary] = useState<ChatDoc[]>(options.initialDocs ?? []);
   const [busy, setBusy] = useState(false);
 
   const createdAt = useRef<number>(Date.now());
@@ -174,24 +195,15 @@ export function useChat(options: {
     createdAt.current = Date.now();
   }, [stop]);
 
-  const send = useCallback(
-    (raw: string) => {
-      const text = raw.trim();
-      if (!text || busy) return;
-
-      const userTurn = emptyTurn("user", text);
-      const assistantTurn = emptyTurn("assistant");
-      const history = [...turnsRef.current, userTurn]
+  /** Stream one assistant turn for an already-committed `base` transcript. */
+  const startRun = useCallback(
+    (base: ChatTurn[], assistant: ChatTurn) => {
+      const history = base
         .map((turn) => {
           const { answer } = turnText(turn);
           return { role: turn.role, content: turn.role === "user" ? answer : stripCitations(answer) };
         })
         .filter((message) => message.content.trim().length > 0);
-
-      const nextTurns = [...turnsRef.current, userTurn, assistantTurn];
-      setTurns(nextTurns);
-      turnsRef.current = nextTurns;
-      setBusy(true);
 
       let activeId = chatId;
       if (!activeId) {
@@ -199,12 +211,11 @@ export function useChat(options: {
         setChatId(activeId);
         window.history.replaceState(null, "", `/chat/${activeId}`);
       }
+      const sessionId = activeId!;
 
-      // The stream applies many patches in order; keep the ref authoritative so
-      // the final persist sees every token.
       const patchAssistant = (patch: (turn: ChatTurn) => ChatTurn) => {
         const next = turnsRef.current.map((turn) =>
-          turn.id === assistantTurn.id ? patch(turn) : turn,
+          turn.id === assistant.id ? patch(turn) : turn,
         );
         turnsRef.current = next;
         setTurns(next);
@@ -234,7 +245,12 @@ export function useChat(options: {
             } catch {
               /* keep default */
             }
-            patchAssistant((turn) => ({ ...turn, streaming: false, error: message }));
+            patchAssistant((turn) => ({
+              ...turn,
+              streaming: false,
+              error: message,
+              timings: { ...turn.timings!, finishedAt: Date.now() },
+            }));
             return;
           }
 
@@ -253,6 +269,9 @@ export function useChat(options: {
                   const block = event.block ?? currentBlock;
                   return {
                     ...turn,
+                    timings: turn.timings?.firstTokenAt
+                      ? turn.timings
+                      : { ...(turn.timings ?? { startedAt: Date.now() }), firstTokenAt: Date.now() },
                     blocks: { ...turn.blocks, [block]: (turn.blocks[block] ?? "") + event.delta },
                   };
                 });
@@ -264,19 +283,37 @@ export function useChat(options: {
                       ...turn,
                       tools: [
                         ...turn.tools,
-                        { name: event.name, status: "start", args: event.args },
+                        {
+                          id: event.id ?? `tool-${turn.tools.length + 1}`,
+                          name: event.name,
+                          status: "start",
+                          args: event.args,
+                          at: Date.now(),
+                        },
                       ],
                     };
                   }
-                  const index = turn.tools.map((tool) => tool.status).lastIndexOf("start");
-                  if (index === -1) return turn;
+                  // Close the matching open tool, else the most recent one.
                   const tools = [...turn.tools];
-                  tools[index] = { name: event.name, status: "stop", args: event.args };
+                  const index = event.id
+                    ? tools.findIndex((tool) => tool.id === event.id && tool.status === "start")
+                    : tools.map((tool) => tool.status).lastIndexOf("start");
+                  const target = index === -1 ? tools.length - 1 : index;
+                  if (target >= 0) {
+                    tools[target] = {
+                      ...tools[target]!,
+                      name: event.name || tools[target]!.name,
+                      status: event.status,
+                      args: event.args ?? tools[target]!.args,
+                      ...(event.result !== undefined ? { result: event.result } : {}),
+                    };
+                  }
                   return { ...turn, tools };
                 });
                 break;
               case "context":
                 nameIndexRef.current = event.docs;
+                setLibrary(event.docs);
                 patchAssistant((turn) => ({
                   ...turn,
                   citations: resolveCitationDocs(turn.citations, event.docs),
@@ -303,10 +340,19 @@ export function useChat(options: {
                 });
                 break;
               case "done":
-                patchAssistant((turn) => ({ ...turn, streaming: false }));
+                patchAssistant((turn) => ({
+                  ...turn,
+                  streaming: false,
+                  timings: { ...turn.timings!, finishedAt: Date.now() },
+                }));
                 break;
               case "error":
-                patchAssistant((turn) => ({ ...turn, streaming: false, error: event.message }));
+                patchAssistant((turn) => ({
+                  ...turn,
+                  streaming: false,
+                  error: event.message,
+                  timings: { ...turn.timings!, finishedAt: Date.now() },
+                }));
                 break;
             }
           };
@@ -331,12 +377,17 @@ export function useChat(options: {
           }
         } catch (error) {
           if ((error as Error).name === "AbortError") {
-            patchAssistant((turn) => ({ ...turn, streaming: false }));
+            patchAssistant((turn) => ({
+              ...turn,
+              streaming: false,
+              timings: { ...turn.timings!, finishedAt: Date.now() },
+            }));
           } else {
             patchAssistant((turn) => ({
               ...turn,
               streaming: false,
               error: error instanceof Error ? error.message : "Network error",
+              timings: { ...turn.timings!, finishedAt: Date.now() },
             }));
           }
         } finally {
@@ -351,14 +402,96 @@ export function useChat(options: {
               ? { ...turn, citations: resolveCitationDocs(tags, index) }
               : turn;
           });
-          persist(turnsRef.current, docsRef.current, activeId!);
+          persist(turnsRef.current, docsRef.current, sessionId);
         }
       };
 
       void run();
     },
-    [busy, chatId, persist],
+    [chatId, persist],
   );
 
-  return { chatId, turns, docs, setDocs, busy, send, stop, reset };
+  const send = useCallback(
+    (raw: string) => {
+      const text = raw.trim();
+      if (!text || busy) return;
+      const userTurn: ChatTurn = { ...emptyTurn("user", text), timings: { startedAt: Date.now() } };
+      const assistantTurn: ChatTurn = {
+        ...emptyTurn("assistant"),
+        timings: { startedAt: Date.now() },
+      };
+      const base = [...turnsRef.current, userTurn];
+      const nextTurns = [...base, assistantTurn];
+      setTurns(nextTurns);
+      turnsRef.current = nextTurns;
+      setBusy(true);
+      startRun(base, assistantTurn);
+    },
+    [busy, startRun],
+  );
+
+  /** Re-answer the last user turn, replacing the assistant response. */
+  const regenerate = useCallback(() => {
+    if (busy) return;
+    const current = turnsRef.current;
+    let lastUser = -1;
+    for (let i = current.length - 1; i >= 0; i -= 1) {
+      if (current[i]!.role === "user") {
+        lastUser = i;
+        break;
+      }
+    }
+    if (lastUser === -1) return;
+    const base = current.slice(0, lastUser + 1);
+    const assistantTurn: ChatTurn = {
+      ...emptyTurn("assistant"),
+      timings: { startedAt: Date.now() },
+    };
+    const nextTurns = [...base, assistantTurn];
+    setTurns(nextTurns);
+    turnsRef.current = nextTurns;
+    setBusy(true);
+    startRun(base, assistantTurn);
+  }, [busy, startRun]);
+
+  /** Edit an earlier user message and re-run from that point. */
+  const editAndResend = useCallback(
+    (turnId: string, raw: string) => {
+      const text = raw.trim();
+      if (!text || busy) return;
+      const current = turnsRef.current;
+      const index = current.findIndex((turn) => turn.id === turnId && turn.role === "user");
+      if (index === -1) return;
+      const base = current.slice(0, index);
+      const userTurn: ChatTurn = {
+        ...current[index]!,
+        blocks: { 0: text },
+        timings: { ...(current[index]!.timings ?? { startedAt: Date.now() }), startedAt: Date.now() },
+      };
+      const assistantTurn: ChatTurn = {
+        ...emptyTurn("assistant"),
+        timings: { startedAt: Date.now() },
+      };
+      const nextTurns = [...base, userTurn, assistantTurn];
+      setTurns(nextTurns);
+      turnsRef.current = nextTurns;
+      setBusy(true);
+      startRun([...base, userTurn], assistantTurn);
+    },
+    [busy, startRun],
+  );
+
+  return {
+    chatId,
+    turns,
+    docs,
+    library: library.length > 0 ? library : docs,
+    setDocs,
+    busy,
+    send,
+    regenerate,
+    editAndResend,
+    stop,
+    reset,
+  };
 }

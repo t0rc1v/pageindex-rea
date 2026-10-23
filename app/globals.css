@@ -359,3 +359,40 @@ body {
     @apply font-sans;
   }
 }
+/* ------------------------------------------------------------- transcript */
+
+/*
+ * A running tool step keeps its label but breathes, so the row reads as
+ * "in flight" without a spinner shifting the baseline.
+ */
+.pi-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    color-mix(in srgb, currentColor 35%, transparent) 0%,
+    currentColor 28%,
+    currentColor 52%,
+    color-mix(in srgb, currentColor 35%, transparent) 82%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: pi-shimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes pi-shimmer {
+  from {
+    background-position: 130% 0;
+  }
+  to {
+    background-position: -130% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pi-shimmer {
+    animation: none;
+    background-image: none;
+    -webkit-text-fill-color: currentColor;
+  }
+}

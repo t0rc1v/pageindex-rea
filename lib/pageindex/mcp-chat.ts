@@ -192,6 +192,7 @@ export async function* openMcpChatStream(input: {
             name: stringField(part, "toolName") ?? "tool",
             status: "stop",
             args: field(part, "input"),
+            result: field(part, "output"),
           };
           break;
         }
@@ -203,8 +204,9 @@ export async function* openMcpChatStream(input: {
           yield {
             type: "tool",
             name: stringField(part, "toolName") ?? "tool",
-            status: "stop",
-            args: message,
+            status: "error",
+            args: field(part, "input"),
+            result: { error: message },
           };
           break;
         }

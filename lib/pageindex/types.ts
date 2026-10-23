@@ -134,7 +134,15 @@ export type ChatStreamEvent =
   | { type: "context"; docs: Array<{ id: string; name: string }> }
   | { type: "block"; index: number }
   | { type: "text"; delta: string; block?: number }
-  | { type: "tool"; name: string; status: "start" | "stop"; args?: unknown }
+  | {
+      type: "tool";
+      id?: string;
+      name: string;
+      status: "start" | "stop" | "error";
+      args?: unknown;
+      /** Present on the MCP lane, which returns real tool payloads. */
+      result?: unknown;
+    }
   | {
       type: "citations";
       citations: Array<

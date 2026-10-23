@@ -77,6 +77,28 @@ function citationsFrom(chunk: UpstreamChunk): Citation[] {
   return out;
 }
 
+/** Map PageIndex / SDK error codes onto copy a reader can act on. */
+export function friendlyError(raw: string): string | null {
+  const code = raw.trim();
+  const upper = code.toUpperCase();
+  if (/INSUFFICIENTCREDITS|USAGE_LIMIT_REACHED|NO_CREDITS|QUOTA/.test(upper)) {
+    return "This PageIndex account has no chat credits left. Top up pages, or switch to the MCP lane with your own model key (Settings explains both).";
+  }
+  if (/PLAN_REQUIRED|SUBSCRIPTION_REQUIRED/.test(upper)) {
+    return "The current PageIndex plan does not include this feature.";
+  }
+  if (/RATE_LIMIT/.test(upper)) {
+    return "PageIndex is rate limiting this account. Try again in a moment.";
+  }
+  if (/UNAUTHORIZED|INVALID_API_KEY|401/.test(upper)) {
+    return "PageIndex rejected the API key. Check PAGEINDEX_API_KEY in .env.local.";
+  }
+  if (/FOLDER_SCOPE_VIOLATION/.test(upper)) {
+    return "That document is outside the folder scope of the API key.";
+  }
+  return null;
+}
+
 export class ChatTranslator {
   private toolName: string | null = null;
   private toolArgs = "";
@@ -87,6 +109,12 @@ export class ChatTranslator {
     const events: ChatStreamEvent[] = [];
 
     if (chunk.error) {
+      // The Cloud API surfaces machine codes here; translate the ones a reader
+      // can act on instead of printing `InsufficientCredits` into the answer.
+      const friendly = friendlyError(
+        typeof chunk.error === "string" ? chunk.error : JSON.stringify(chunk.error),
+      );
+      if (friendly) return [{ type: "error", message: friendly }];
       const message =
         typeof chunk.error === "string" ? chunk.error : JSON.stringify(chunk.error);
       return [{ type: "error", message }];

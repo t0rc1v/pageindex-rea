@@ -19,9 +19,21 @@ export interface StoredCitation {
 }
 
 export interface StoredTool {
+  /** Stable per-run id so a later stop event can address its own start. */
+  id?: string;
   name: string;
-  status: "start" | "stop";
+  status: "start" | "stop" | "error";
   args?: unknown;
+  /** Present on the MCP lane, which returns real tool payloads. */
+  result?: unknown;
+  at?: number;
+}
+
+/** Wall-clock timings, used for the collapsed "Thought for Ns" row. */
+export interface TurnTimings {
+  startedAt: number;
+  firstTokenAt?: number;
+  finishedAt?: number;
 }
 
 export interface StoredTurn {
@@ -31,6 +43,7 @@ export interface StoredTurn {
   citations: StoredCitation[];
   tools: StoredTool[];
   error?: string;
+  timings?: TurnTimings;
 }
 
 export interface StoredChat {

@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useRef } from "react";
 
 import { useFetch } from "@/lib/client/hooks";
-import type { BlockResponse, Citation } from "@/lib/pageindex/types";
-import { Button, Spinner, cn } from "@/components/ui-kit";
+import type { BlockResponse, Citation, PageIndexDocument } from "@/lib/pageindex/types";
+import { Spinner, cn } from "@/components/ui-kit";
 
 export interface CitationAnchor {
   citation: Citation;
@@ -47,12 +47,16 @@ export function CitationCard({
       ? `/api/docs/${encodeURIComponent(citation.docId!)}/pages?from=${citation.page}&to=${citation.page}`
       : null,
   );
+  const meta = useFetch<PageIndexDocument>(
+    canLoad ? `/api/docs/${encodeURIComponent(citation.docId!)}` : null,
+  );
 
   const bbox = citation.bbox ?? block.data?.bbox;
   const snippet =
     block.data?.text ??
     (page.data?.pages[0]?.markdown ?? "").replace(/[#*>-]/g, "").slice(0, 320);
   const blockType = citation.blockType ?? block.data?.block_type;
+  const totalPages = meta.data?.pageNum;
 
   useEffect(() => {
     const onPointerDown = (event: MouseEvent) => {
@@ -73,6 +77,21 @@ export function CitationCard({
 
   const style = useMemo(() => {
     if (typeof window === "undefined") return undefined;
+    // Phones get a bottom sheet. Driven from inline geometry rather than
+    // breakpoint utilities so it cannot be overridden by a stale class merge.
+    if (window.innerWidth < 640) {
+      return {
+        position: "fixed",
+        left: 0,
+        right: 0,
+        bottom: 0,
+        top: "auto",
+        width: "auto",
+        maxHeight: "82dvh",
+        borderBottomLeftRadius: 0,
+        borderBottomRightRadius: 0,
+      } as React.CSSProperties;
+    }
     const width = 352;
     const margin = 12;
     const left = Math.min(
@@ -85,7 +104,7 @@ export function CitationCard({
       below + estimated > window.innerHeight - margin
         ? Math.max(margin, anchor.rect.top - estimated - 8)
         : below;
-    return { left, top, width } as const;
+    return { position: "fixed", left, top, width } as React.CSSProperties;
   }, [anchor]);
 
   return (
@@ -95,8 +114,6 @@ export function CitationCard({
       aria-label="Citation details"
       className={cn(
         "z-50 overflow-hidden rounded-xl border border-line bg-surface shadow-[0_12px_40px_rgba(23,22,21,0.18)]",
-        "max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:top-auto max-sm:w-auto max-sm:rounded-b-none max-sm:rounded-t-2xl",
-        "sm:fixed",
       )}
       style={style}
     >
@@ -105,10 +122,16 @@ export function CitationCard({
           <p className="truncate text-[12px] font-medium text-ink" title={citation.document}>
             {citation.document}
           </p>
-          <p className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-[10px] text-ink-muted">
-            <span>page {citation.page}</span>
-            {citation.blockId && <span>· {citation.blockId}</span>}
-            {blockType && <span>· {blockType}</span>}
+          <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-ink-muted">
+            <span>
+              Page {citation.page}
+              {totalPages ? ` of ${totalPages}` : ""}
+            </span>
+            {blockType && (
+              <span className="rounded border border-line bg-paper px-1 py-px text-[10px]">
+                {blockLabel(blockType)}
+              </span>
+            )}
           </p>
         </div>
         <button
@@ -158,18 +181,36 @@ export function CitationCard({
             </p>
           )}
 
-          <div className="mt-2 flex items-center gap-1.5">
-            <Button size="sm" variant="primary" onClick={() => onOpenPage(citation)} disabled={!canLoad}>
-              Open page
-            </Button>
-            {citation.blockId && (
-              <span className="font-mono text-[9px] text-ink-muted">block-level</span>
-            )}
+          <div className="mt-2 flex items-center justify-end">
+            <button
+              type="button"
+              onClick={() => onOpenPage(citation)}
+              disabled={!canLoad}
+              className="cursor-pointer rounded-md px-1.5 py-1 text-[11.5px] text-brand-deep transition-colors hover:bg-brand-soft disabled:cursor-default disabled:opacity-40"
+            >
+              Open page ↗
+            </button>
           </div>
         </div>
       </div>
     </div>
   );
+}
+
+const BLOCK_LABELS: Record<string, string> = {
+  text: "Text block",
+  table: "Table",
+  image: "Image",
+  figure: "Figure",
+  list: "List",
+  title: "Heading",
+  header: "Header",
+  footer: "Footer",
+  toc: "Contents",
+};
+
+function blockLabel(value: string): string {
+  return BLOCK_LABELS[value] ?? value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 export function HighlightBox({
