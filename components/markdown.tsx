@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
-import ReactMarkdown, { type Components } from "react-markdown";
+import { createContext, useContext, useRef, useState, type ComponentProps } from "react";
+import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { citationKey, tokenizeCitations } from "@/lib/citations";
@@ -24,50 +24,74 @@ const CITE_PREFIX = "#pi-cite-";
  *  - embedded figures come back as bare image ids (e.g. `img-7.jpeg`), routed
  *    through the API's presigned-image endpoint;
  *  - links open in a new tab so a click never navigates the reader away.
+ *
+ * The overrides live in one module-level map and read their per-answer data
+ * from context: a map rebuilt per render gives react-markdown new component
+ * types, which makes React remount the chip (and the diagram, and every image)
+ * whenever anything above re-renders.
  */
-function buildComponents(
-  docId: string | undefined,
-  citations: Citation[],
-  onPreview?: CitationPreviewHandler,
-): Components {
-  return {
-    a: ({ href, children, ...props }) => {
-      if (href?.startsWith(CITE_PREFIX)) {
-        const index = Number.parseInt(href.slice(CITE_PREFIX.length), 10);
-        const citation = citations[index];
-        if (citation) {
-          return <CitationChip citation={citation} index={index + 1} onPreview={onPreview} />;
-        }
-      }
-      return (
-        <a
-          {...props}
-          href={href}
-          target="_blank"
-          rel="noreferrer noopener"
-          className="text-ink underline decoration-line decoration-1 underline-offset-2 hover:decoration-ink"
-        >
-          {children}
-        </a>
-      );
-    },
-    img: ({ src, alt }) => {
-      const raw = typeof src === "string" ? src : "";
-      if (!raw) return null;
-      const resolved =
-        docId && !isAbsoluteUrl(raw)
-          ? `/api/docs/${encodeURIComponent(docId)}/image/${encodeURIComponent(raw)}`
-          : raw;
-      return <ImageFrame src={resolved} alt={alt ?? ""} />;
-    },
-    table: ({ children }) => <TableFrame>{children}</TableFrame>,
-    pre: ({ children }) => {
-      const fence = readFence(children);
-      if (fence.lang === "mermaid") return <MermaidDiagram code={fence.text} />;
-      return <CodeFrame>{children}</CodeFrame>;
-    },
-  };
+const MarkdownScopeContext = createContext<{
+  docId?: string;
+  citations: Citation[];
+  onPreview?: CitationPreviewHandler;
+}>({ citations: [] });
+
+const REMARK_PLUGINS = [remarkGfm];
+
+type AnchorProps = ComponentProps<"a"> & ExtraProps;
+type ImageProps = ComponentProps<"img"> & ExtraProps;
+type PreProps = ComponentProps<"pre"> & ExtraProps;
+type TableProps = ComponentProps<"table"> & ExtraProps;
+
+function MarkdownLink({ href, children, ...props }: AnchorProps) {
+  const { citations, onPreview } = useContext(MarkdownScopeContext);
+  if (href?.startsWith(CITE_PREFIX)) {
+    const index = Number.parseInt(href.slice(CITE_PREFIX.length), 10);
+    const citation = citations[index];
+    if (citation) {
+      return <CitationChip citation={citation} index={index + 1} onPreview={onPreview} />;
+    }
+  }
+  return (
+    <a
+      {...props}
+      href={href}
+      target="_blank"
+      rel="noreferrer noopener"
+      className="text-ink underline decoration-line decoration-1 underline-offset-2 hover:decoration-ink"
+    >
+      {children}
+    </a>
+  );
 }
+
+function MarkdownImage({ src, alt }: ImageProps) {
+  const { docId } = useContext(MarkdownScopeContext);
+  const raw = typeof src === "string" ? src : "";
+  if (!raw) return null;
+  const resolved =
+    docId && !isAbsoluteUrl(raw)
+      ? `/api/docs/${encodeURIComponent(docId)}/image/${encodeURIComponent(raw)}`
+      : raw;
+  return <ImageFrame src={resolved} alt={alt ?? ""} />;
+}
+
+function MarkdownTable({ children }: TableProps) {
+  return <TableFrame>{children}</TableFrame>;
+}
+
+function MarkdownPre({ children }: PreProps) {
+  const fence = readFence(children);
+  if (fence.lang === "mermaid") return <MermaidDiagram code={fence.text} />;
+  return <CodeFrame>{children}</CodeFrame>;
+}
+
+const MARKDOWN_COMPONENTS: Components = {
+  a: MarkdownLink,
+  img: MarkdownImage,
+  table: MarkdownTable,
+  pre: MarkdownPre,
+};
 
 export function Markdown({
   children,
@@ -105,12 +129,11 @@ export function Markdown({
 
   return (
     <div className={cn("md-body", compact && "md-body-compact", className)}>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={buildComponents(docId, citations, onCite)}
-      >
-        {prepared}
-      </ReactMarkdown>
+      <MarkdownScopeContext.Provider value={{ docId, citations, onPreview: onCite }}>
+        <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>
+          {prepared}
+        </ReactMarkdown>
+      </MarkdownScopeContext.Provider>
     </div>
   );
 }
