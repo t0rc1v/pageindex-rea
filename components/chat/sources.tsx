@@ -46,7 +46,7 @@ export function Sources({
   onOpenPage,
 }: {
   citations: Citation[];
-  onPreview: (citation: Citation, rect: CitationAnchor["rect"]) => void;
+  onPreview: (citation: Citation, rect: CitationAnchor["rect"], marker: HTMLElement) => void;
   onOpenPage: (citation: Citation) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -108,12 +108,11 @@ export function Sources({
                       onClick={(event) => {
                         if (!item.citation.docId) return;
                         const rect = event.currentTarget.getBoundingClientRect();
-                        onPreview(item.citation, {
-                          left: rect.left,
-                          top: rect.top,
-                          width: rect.width,
-                          height: rect.height,
-                        });
+                        onPreview(
+                          item.citation,
+                          { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+                          event.currentTarget,
+                        );
                       }}
                       className="cursor-pointer rounded px-1 py-0.5 font-mono text-[10.5px] text-brand-deep underline decoration-brand/40 underline-offset-2 hover:decoration-brand disabled:cursor-default disabled:opacity-60"
                       title={`${entry.document} — page ${item.page}`}

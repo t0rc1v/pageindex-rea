@@ -29,7 +29,9 @@ library.
   `N references · M documents`, grouped per document with page links).
 - **Citation preview** — hover on desktop, tap on mobile: `Page N of M`, a block-type
   pill, the cited page thumbnail with the block outlined, the block's own text,
-  and **Open page ↗**.
+  and **Open page ↗**. It keeps the same 8px gap whether it opens above or below
+  the marker, follows the marker while the transcript scrolls, and goes away
+  once the marker does.
 - **Document panel** — one tab per document, resizable on desktop, a bottom-sheet
   viewer on phones; page image ↔ OCR text toggle, page navigation, `Document info`
   (pages, uploaded, description), remembers the last page per document, and
@@ -187,6 +189,7 @@ lib/
   pageindex/client.ts          server-only Cloud client
   pageindex/chat-stream.ts     SSE → normalized events (verified grammar)
   citations.ts                 tag parsing, numbering, stream-safe tokenizing
+  citation-placement.ts        where the citation preview sits (measured, clamped)
   chat-store.ts                conversations in localStorage
   server/pages-cache.ts        bounded page-content cache
 docs/REVERSE-ENGINEERING.md    evidence, inferences, open questions

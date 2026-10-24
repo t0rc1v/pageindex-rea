@@ -243,7 +243,7 @@ export function ChatWorkspace({ chatId, initialDocs }: { chatId?: string; initia
                       else answerNodes.current.delete(turn.id);
                     }}
                     getNode={() => answerNodes.current.get(turn.id) ?? null}
-                    onPreview={(citation, rect) => setPreview({ citation, rect })}
+                    onPreview={(citation, rect, marker) => setPreview({ citation, rect, marker })}
                     onOpenPage={openCitation}
                     onRegenerate={chat.regenerate}
                     onSelectRun={(index) => chat.selectRun(turn.id, index)}
@@ -436,7 +436,7 @@ function Turn({
   resolveDocId: (name: string | undefined) => string | undefined;
   answerRef: (node: HTMLElement | null) => void;
   getNode: () => HTMLElement | null;
-  onPreview: (citation: Citation, rect: CitationAnchor["rect"]) => void;
+  onPreview: (citation: Citation, rect: CitationAnchor["rect"], marker: HTMLElement) => void;
   onOpenPage: (citation: Citation) => void;
   onRegenerate: () => void;
   onSelectRun: (index: number) => void;

@@ -1,11 +1,13 @@
 "use client";
 
 import type { Citation } from "@/lib/pageindex/types";
+import type { AnchorRect } from "@/lib/citation-placement";
 import { cn } from "./ui-kit";
 
 export type CitationPreviewHandler = (
   citation: Citation,
-  rect: { left: number; top: number; width: number; height: number },
+  rect: AnchorRect,
+  marker: HTMLElement,
 ) => void;
 
 /**
@@ -33,12 +35,11 @@ export function CitationChip({
   const open = (event: { currentTarget: HTMLElement }) => {
     if (!onPreview) return;
     const rect = event.currentTarget.getBoundingClientRect();
-    onPreview(citation, {
-      left: rect.left,
-      top: rect.top,
-      width: rect.width,
-      height: rect.height,
-    });
+    onPreview(
+      citation,
+      { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+      event.currentTarget,
+    );
   };
 
   const classes = cn(

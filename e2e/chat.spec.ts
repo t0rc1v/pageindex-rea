@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
 
 test.describe("conversation surface", () => {
   test("answers a question with tool steps, citations and sources", async ({ page }) => {
@@ -90,6 +90,118 @@ test.describe("conversation surface", () => {
     const card = page.getByRole("dialog", { name: "Citation details" });
     await expect(card).toContainText(/Page \d of 3/);
     await expect(card).toContainText("Text block");
+  });
+
+  test("citation preview hugs its marker: same gap either side, follows scroll", async ({ page }) => {
+    await page.goto("/chat");
+    await page.getByPlaceholder(/Ask a question/).fill("Summarize the key findings.");
+    await page.getByLabel("Send message").click();
+
+    const chip = page.getByRole("button", { name: /^Citation 1:/ });
+    await expect(chip).toBeVisible({ timeout: 30_000 });
+    const card = page.getByRole("dialog", { name: "Citation details" });
+
+    // The card is placed from the marker's rect at the moment the preview
+    // opens, and the marker moves while the transcript settles, so the rect has
+    // to be captured from the same event the card saw.
+    await page.evaluate(() => {
+      const remember = (event: Event) => {
+        const marker = (event.target as HTMLElement).closest<HTMLElement>(
+          'button[aria-label^="Citation "], button[title*="— page"]',
+        );
+        if (!marker) return;
+        const rect = marker.getBoundingClientRect();
+        (window as unknown as { __anchor?: { top: number; bottom: number } }).__anchor = {
+          top: rect.top,
+          bottom: rect.bottom,
+        };
+      };
+      // Hovering opens the card, and on these markers the browser often fires
+      // no click at all (the card closes on mousedown, so down and up disagree),
+      // so remember the rect from whichever event the card opened on.
+      for (const type of ["mouseover", "click", "focusin"]) {
+        document.addEventListener(type, remember, true);
+      }
+    });
+
+    const open = async (marker: Locator) => {
+      await page.evaluate(() => {
+        (window as unknown as { __anchor?: unknown }).__anchor = undefined;
+      });
+      await page.mouse.move(0, 0);
+      await marker.click();
+      const anchor = await page.evaluate(
+        () => (window as unknown as { __anchor?: { top: number; bottom: number } }).__anchor,
+      );
+      if (!anchor) throw new Error("the marker was never pointed at");
+      await expect(card).toContainText(/Page \d of 3/);
+      return anchor;
+    };
+
+    // Below the marker the gap is unconditional.
+    const first = await open(chip);
+    await expect.poll(async () => Math.round((await card.boundingBox())!.y - first.bottom)).toBe(8);
+    // Opening the preview must not move the answer itself (it used to remount
+    // the markdown subtree, which shifted everything by a diagram's height).
+    await expect.poll(async () => Math.round((await chip.boundingBox())!.y)).toBe(Math.round(first.top));
+
+    // Scrolling moves the marker, so the card follows it instead of being left
+    // behind on unrelated text.
+    const before = (await card.boundingBox())!;
+    await page.evaluate(() => {
+      const marker = document.querySelector('button[aria-label^="Citation 1:"]') as HTMLElement;
+      const scroller = marker.closest("div.overflow-y-auto") as HTMLElement;
+      scroller.scrollTop += 24;
+    });
+    await expect.poll(async () => Math.round((await card.boundingBox())!.y - before.y)).toBe(-24);
+    await expect
+      .poll(async () => {
+        const box = await card.boundingBox();
+        const marker = await chip.boundingBox();
+        return box && marker ? Math.round(box.y - (marker.y + marker.height)) : Number.NaN;
+      })
+      .toBe(8);
+
+    // Once the marker is gone there is nothing to point at, so the card goes.
+    // The expanded Sources block makes the transcript long enough for it to
+    // scroll clean off the top.
+    await page.getByLabel("Close citation preview").click();
+    await page.getByRole("button", { name: /^Sources/ }).click();
+    await open(chip);
+    await page.evaluate(() => {
+      const marker = document.querySelector('button[aria-label^="Citation 1:"]') as HTMLElement;
+      const scroller = marker.closest("div.overflow-y-auto") as HTMLElement;
+      scroller.scrollTop = scroller.scrollHeight;
+    });
+    await expect.poll(async () => Math.round((await chip.boundingBox())!.y)).toBeLessThan(0);
+    await expect(card).toHaveCount(0);
+
+    // The last citation sits at the bottom of the transcript, so a card taller
+    // than the room below it has to flip above. Give the mock page art a tall
+    // aspect to force that, then check the gap above is the same 8px — it used
+    // to be measured against a guessed card height, which left the flipped
+    // card tens of px further from the marker than the card below it ever was.
+    await page.setViewportSize({ width: 1100, height: 900 });
+    await page.route(/\/render\/page-\d+\.png/, (route) =>
+      route.fulfill({
+        contentType: "image/svg+xml",
+        body: '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="300"><rect width="100" height="300" fill="#eee"/></svg>',
+      }),
+    );
+    const lastPage = page.getByRole("button", { name: "p.3", exact: true }).last();
+    const last = await open(lastPage);
+    await expect(card).toContainText(/Page 3 of 3/);
+
+    await expect
+      .poll(async () => {
+        const live = await card.boundingBox();
+        return live ? Math.round(last.top - (live.y + live.height)) : Number.NaN;
+      })
+      .toBe(8);
+    const settled = await card.boundingBox();
+    expect(settled!.y).toBeLessThan(last.top);
+    expect(settled!.y).toBeGreaterThanOrEqual(11);
+    expect(settled!.y + settled!.height).toBeLessThanOrEqual(900);
   });
 
   test("appearance switches the transcript and theme", async ({ page }) => {

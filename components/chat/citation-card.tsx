@@ -1,14 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { useFetch } from "@/lib/client/hooks";
+import { CARD_WIDTH, placeCitationCard, type AnchorRect } from "@/lib/citation-placement";
 import type { BlockResponse, Citation, PageIndexDocument } from "@/lib/pageindex/types";
 import { Spinner, cn } from "@/components/ui-kit";
 
 export interface CitationAnchor {
   citation: Citation;
-  rect: { left: number; top: number; width: number; height: number };
+  rect: AnchorRect;
+  /**
+   * The marker the preview points at. The card follows its live rect, so it
+   * stays glued when the transcript (or the page) scrolls.
+   */
+  marker?: HTMLElement;
 }
 
 /**
@@ -16,8 +22,9 @@ export interface CitationAnchor {
  * on desktop, or tap one on mobile — the cited page, the block's own text, and
  * a way into the document.
  *
- * Positioned from the chip's rect and clamped to the viewport; on small screens
- * it becomes a bottom sheet instead of a floating card.
+ * Positioned from the marker's live rect, so it follows scrolling and stays
+ * clamped to the viewport; on small screens it becomes a bottom sheet instead
+ * of a floating card.
  */
 export function CitationCard({
   anchor,
@@ -30,6 +37,13 @@ export function CitationCard({
 }) {
   const { citation } = anchor;
   const cardRef = useRef<HTMLDivElement | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  // The card's natural height, measured rather than guessed: flipping above the
+  // chip is only symmetric if the gap uses the real height, and the content
+  // (page image, snippet) grows after the first paint.
+  const [height, setHeight] = useState(0);
+  const closeRef = useRef(onClose);
+  const placeRef = useRef<() => void>(() => {});
 
   const canLoad = Boolean(citation.docId);
   const block = useFetch<BlockResponse>(
@@ -80,37 +94,114 @@ export function CitationCard({
     };
   }, [onClose]);
 
-  const style = useMemo(() => {
-    if (typeof window === "undefined") return undefined;
-    // Phones get a bottom sheet. Driven from inline geometry rather than
-    // breakpoint utilities so it cannot be overridden by a stale class merge.
-    if (window.innerWidth < 640) {
-      return {
+  // The preview points at a live marker, so it is placed by hand: scrolling
+  // moves the marker, and routing every scroll frame through state would
+  // re-render the card while the transcript moves.
+  const place = useCallback(() => {
+    const card = cardRef.current;
+    if (!card) return;
+    const marker = anchor.marker;
+    if (marker && !marker.isConnected) {
+      // A re-render replaced the marker; there is nothing left to point at.
+      closeRef.current();
+      return;
+    }
+    const rect = marker ? marker.getBoundingClientRect() : anchor.rect;
+    const viewport = { width: window.innerWidth, height: window.innerHeight };
+
+    if (viewport.width < 640) {
+      // Phones get a bottom sheet. Driven from inline geometry rather than
+      // breakpoint utilities so it cannot be overridden by a stale class merge.
+      Object.assign(card.style, {
         position: "fixed",
-        left: 0,
-        right: 0,
-        bottom: 0,
+        left: "0px",
+        right: "0px",
+        bottom: "0px",
         top: "auto",
         width: "auto",
         maxHeight: "82dvh",
-        borderBottomLeftRadius: 0,
-        borderBottomRightRadius: 0,
-      } as React.CSSProperties;
+        borderBottomLeftRadius: "0px",
+        borderBottomRightRadius: "0px",
+      });
+      return;
     }
-    const width = 352;
-    const margin = 12;
-    const left = Math.min(
-      Math.max(margin, anchor.rect.left + anchor.rect.width / 2 - width / 2),
-      window.innerWidth - width - margin,
-    );
-    const below = anchor.rect.top + anchor.rect.height + 8;
-    const estimated = 300;
-    const top =
-      below + estimated > window.innerHeight - margin
-        ? Math.max(margin, anchor.rect.top - estimated - 8)
-        : below;
-    return { position: "fixed", left, top, width } as React.CSSProperties;
-  }, [anchor]);
+
+    // A marker scrolled out of view has nothing to point at, and a card parked
+    // on unrelated text is worse than none.
+    if (rect.top > viewport.height || rect.top + rect.height < 0) {
+      closeRef.current();
+      return;
+    }
+
+    const placement = placeCitationCard(rect, { height, viewport, width: CARD_WIDTH });
+    card.style.position = "fixed";
+    card.style.left = `${placement.left}px`;
+    card.style.top = `${placement.top}px`;
+    card.style.width = `${placement.width}px`;
+    card.style.maxHeight = placement.maxHeight ? `${placement.maxHeight}px` : "";
+    card.style.right = "auto";
+    card.style.bottom = "auto";
+    card.style.borderBottomLeftRadius = "";
+    card.style.borderBottomRightRadius = "";
+  }, [anchor, height]);
+
+  useLayoutEffect(() => {
+    place();
+  }, [place]);
+
+  // Kept in refs so the scroll listener below never calls a stale closure.
+  useLayoutEffect(() => {
+    closeRef.current = onClose;
+    placeRef.current = place;
+  });
+
+  // Measured after the first placement so the width — which drives the text
+  // wrap, and so the height — is already final.
+  useLayoutEffect(() => {
+    const card = cardRef.current;
+    if (!card) return;
+    const measure = () => {
+      const body = bodyRef.current;
+      const cardHeight = card.getBoundingClientRect().height;
+      // While the card is clamped to the viewport the body scrolls, so its own
+      // box is the clipped height. Reading scrollHeight instead keeps the flip
+      // decision on the natural size and stops measure/clamp feedback from
+      // oscillating.
+      const clipped = body ? body.scrollHeight - body.clientHeight > 1 : false;
+      const natural =
+        body && clipped
+          ? cardHeight - body.getBoundingClientRect().height + body.scrollHeight
+          : cardHeight;
+      setHeight((current) => (Math.abs(current - natural) > 0.5 ? natural : current));
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(card);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    let frame = 0;
+    const schedule = (event?: Event) => {
+      // Scrolling inside the card is not the transcript moving.
+      if (event?.target instanceof Node && cardRef.current?.contains(event.target)) return;
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        placeRef.current();
+      });
+    };
+    const onScroll = (event: Event) => schedule(event);
+    const onResize = () => schedule();
+    window.addEventListener("scroll", onScroll, { capture: true, passive: true });
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("scroll", onScroll, { capture: true });
+      window.removeEventListener("resize", onResize);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, []);
 
   return (
     <div
@@ -118,11 +209,10 @@ export function CitationCard({
       role="dialog"
       aria-label="Citation details"
       className={cn(
-        "z-50 overflow-hidden rounded-xl border border-line bg-surface shadow-[0_12px_40px_rgba(23,22,21,0.18)]",
+        "z-50 flex flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-[0_12px_40px_rgba(23,22,21,0.18)]",
       )}
-      style={style}
     >
-      <div className="flex items-start justify-between gap-2 border-b border-line px-3 py-2">
+      <div className="flex shrink-0 items-start justify-between gap-2 border-b border-line px-3 py-2">
         <div className="min-w-0">
           <p className="truncate text-[12px] font-medium text-ink" title={citation.document}>
             {citation.document}
@@ -149,7 +239,7 @@ export function CitationCard({
         </button>
       </div>
 
-      <div className="flex gap-3 p-3">
+      <div ref={bodyRef} className="flex min-h-0 items-start gap-3 overflow-y-auto p-3">
         <div
           className={cn(
             "relative shrink-0 overflow-hidden rounded-md border border-line bg-white",
