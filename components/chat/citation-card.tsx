@@ -56,7 +56,9 @@ export function CitationCard({
     block.data?.text ??
     (page.data?.pages[0]?.markdown ?? "").replace(/[#*>-]/g, "").slice(0, 320);
   const blockType = citation.blockType ?? block.data?.block_type;
-  const kind = blockKind(blockType);
+  // PageIndex labels a figure's own block "caption"; the wording is the only
+  // signal that it belongs to a figure or a table.
+  const kind = blockKind(blockType, snippet);
   // A figure or table is more useful cropped than as a whole page.
   const crop = kind !== "text" && bbox ? bbox : null;
   const totalPages = meta.data?.pageNum;
@@ -132,7 +134,7 @@ export function CitationCard({
             </span>
             {blockType && (
               <span className="rounded border border-line bg-paper px-1 py-px text-[10px]">
-                {blockLabel(blockType)}
+                {blockLabel(blockType, snippet)}
               </span>
             )}
           </p>
@@ -220,10 +222,12 @@ export function CitationCard({
 
 type BlockKind = "text" | "figure" | "table";
 
-function blockKind(value: string | undefined): BlockKind {
-  if (!value) return "text";
-  if (/image|figure|chart|diagram|photo/.test(value)) return "figure";
-  if (/table/.test(value)) return "table";
+function blockKind(value: string | undefined, text?: string): BlockKind {
+  if (value && /image|figure|chart|diagram|photo/.test(value)) return "figure";
+  if (value && /table/.test(value)) return "table";
+  const lead = (text ?? "").trimStart().slice(0, 40);
+  if (/^(figure|fig\.)\s*\d/i.test(lead)) return "figure";
+  if (/^table\s*\d/i.test(lead)) return "table";
   return "text";
 }
 
@@ -239,8 +243,8 @@ const BLOCK_LABELS: Record<string, string> = {
   toc: "Contents",
 };
 
-function blockLabel(value: string): string {
-  const kind = blockKind(value);
+function blockLabel(value: string, text?: string): string {
+  const kind = blockKind(value, text);
   if (kind === "figure") return "Cited figure";
   if (kind === "table") return "Cited table";
   return BLOCK_LABELS[value] ?? value.charAt(0).toUpperCase() + value.slice(1);

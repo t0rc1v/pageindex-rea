@@ -277,7 +277,7 @@ function TableFrame({ children }: { children?: React.ReactNode }) {
 
 /** Code block with a copy affordance. */
 function CodeFrame({ children }: { children?: React.ReactNode }) {
-  const ref = useRef<HTMLDivElement | null>(null);
+  const ref = useRef<HTMLPreElement | null>(null);
   const [copied, setCopied] = useState(false);
   return (
     <div className="group/code relative">
@@ -296,7 +296,8 @@ function CodeFrame({ children }: { children?: React.ReactNode }) {
       >
         {copied ? "Copied" : "Copy"}
       </button>
-      <div ref={ref}>{children}</div>
+      {/* Keep the <pre>: dropping it loses whitespace and the block styling. */}
+      <pre ref={ref}>{children}</pre>
     </div>
   );
 }

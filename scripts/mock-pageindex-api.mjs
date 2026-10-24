@@ -142,7 +142,7 @@ async function chatStream(req, res) {
   send({ block_metadata: { type: "text_block_start", block_index: 2 } });
   const tail =
     "Supply concentration is the principal operational risk. <cite doc=\"Annual Report 2024.pdf\" page=\"3\" block=\"p3_text_1\"/>\n\n" +
-    "```mermaid\nflowchart LR\n  A[Question] --> B{Tree walk}\n  B -->|section| C[Pages]\n  C --> D[Cited answer]\n```\n\n| Metric | FY24 | FY25 |\n| --- | --- | --- |\n| Revenue | 3.7 | 4.2 |\n| Margin | 71% | 74% |";
+    "```mermaid\nflowchart LR\n  A[Question] --> B{Tree walk}\n  B -->|section| C[Pages]\n  C --> D[Cited answer]\n```\n\n| Metric | FY24 | FY25 |\n| --- | --- | --- |\n| Revenue | 3.7 | 4.2 |\n| Margin | 71% | 74% |\n\nThe figure shows the mix change: <cite doc=\"Annual Report 2024.pdf\" page=\"2\" block=\"p2_image_1\"/>, and the segment table breaks it out: <cite doc=\"Annual Report 2024.pdf\" page=\"2\" block=\"p2_table_1\"/>\n\n```ts\nconst revenue = { fy24: 3.7, fy25: 4.2 };\n```";
   for (const piece of chunks(tail)) {
     text(piece);
     await sleep(8);
@@ -154,6 +154,10 @@ async function chatStream(req, res) {
     citations: [
       { document: "Annual Report 2024.pdf", page: 1, block_id: "p1_text_2", bbox: [80, 240, 910, 300], block_type: "text" },
       { document: "Annual Report 2024.pdf", page: 3, block_id: "p3_text_1", bbox: [80, 200, 910, 260], block_type: "text" },
+      // A figure and a table, so the citation card's variant previews have
+      // something to crop in offline runs.
+      { document: "Annual Report 2024.pdf", page: 2, block_id: "p2_image_1", bbox: [140, 180, 720, 520], block_type: "image" },
+      { document: "Annual Report 2024.pdf", page: 2, block_id: "p2_table_1", bbox: [90, 560, 900, 720], block_type: "table" },
     ],
   });
   res.write("data: [DONE]\n\n");
@@ -245,6 +249,8 @@ const server = http.createServer(async (req, res) => {
     const found = {
       "p1_text_2": { page: 1, bbox: [80, 240, 910, 300], block_type: "text", text: "Revenue grew 12% to $4.2bn." },
       "p3_text_1": { page: 3, bbox: [80, 200, 910, 260], block_type: "text", text: "Supply concentration remains the principal operational risk." },
+      "p2_image_1": { page: 2, bbox: [140, 180, 720, 520], block_type: "image", text: "Figure 1: Revenue mix by segment, FY24 vs FY25." },
+      "p2_table_1": { page: 2, bbox: [90, 560, 900, 720], block_type: "table", text: "Segment | FY24 | FY25 — Cloud 1.2 1.6; Devices 2.1 2.0; Services 0.4 0.6" },
     }[blockId];
     if (!found) return json(res, 404, { detail: "block not found" });
     return json(res, 200, { doc_id: doc.id, block_id: blockId, ...found });

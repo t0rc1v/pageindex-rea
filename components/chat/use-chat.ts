@@ -197,7 +197,9 @@ export function useChat(options: {
   const [context, setContext] = useState<PageContext[]>([]);
   const [busy, setBusy] = useState(false);
 
-  const createdAt = useRef<number>(Date.now());
+  // Seeded lazily: calling Date.now() during render is impure and the value is
+  // only needed once the first turn is persisted.
+  const createdAt = useRef<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const docsRef = useRef(docs);
   const turnsRef = useRef(turns);
@@ -215,7 +217,9 @@ export function useChat(options: {
   }, [context]);
 
   const persist = useCallback((nextTurns: ChatTurn[], nextDocs: ChatDoc[], id: string) => {
-    saveChat(toStored(nextTurns, nextDocs.map((doc) => doc.id), nextDocs, id, createdAt.current));
+    saveChat(
+      toStored(nextTurns, nextDocs.map((doc) => doc.id), nextDocs, id, createdAt.current ?? Date.now()),
+    );
   }, []);
 
   const setDocs = useCallback((next: ChatDoc[]) => {
@@ -234,7 +238,7 @@ export function useChat(options: {
     setTurns([]);
     setChatId(null);
     setContext([]);
-    createdAt.current = Date.now();
+    createdAt.current = null;
   }, [stop]);
 
   const addContext = useCallback((entry: PageContext) => {
@@ -274,21 +278,29 @@ export function useChat(options: {
       }
       const sessionId = activeId!;
 
-      const patchRun = (patch: (run: ChatRun) => ChatRun) => {
-        const next = turnsRef.current.map((turn) => {
-          if (turn.id !== assistantId) return turn;
-          const runs = turn.runs.map((run, index) => (index === runIndex ? patch(run) : run));
-          return { ...turn, runs };
-        });
-        turnsRef.current = next;
-        setTurns(next);
+      // Accumulate into one mutable run buffer, then publish a copy. Writing
+      // through React state on every token raced with the render→ref sync and
+      // silently dropped characters on long streams.
+      const runBuffer: ChatRun = {
+        blocks: {},
+        citations: [],
+        tools: [],
+        timings: { startedAt: Date.now() },
       };
 
-      const settle = (patch: (run: ChatRun) => ChatRun) => {
-        patchRun(patch);
-        const next = turnsRef.current.map((turn) =>
-          turn.id === assistantId ? { ...turn, streaming: false } : turn,
-        );
+      const publish = (settled = false) => {
+        const snapshot: ChatRun = {
+          blocks: { ...runBuffer.blocks },
+          citations: [...runBuffer.citations],
+          tools: runBuffer.tools.map((tool) => ({ ...tool })),
+          ...(runBuffer.error ? { error: runBuffer.error } : {}),
+          ...(runBuffer.timings ? { timings: { ...runBuffer.timings } } : {}),
+        };
+        const next = turnsRef.current.map((turn) => {
+          if (turn.id !== assistantId) return turn;
+          const runs = turn.runs.map((run, index) => (index === runIndex ? snapshot : run));
+          return { ...turn, runs, ...(settled ? { streaming: false } : {}) };
+        });
         turnsRef.current = next;
         setTurns(next);
       };
@@ -323,11 +335,9 @@ export function useChat(options: {
             } catch {
               /* keep default */
             }
-            settle((current) => ({
-              ...current,
-              error: message,
-              timings: { ...current.timings!, finishedAt: Date.now() },
-            }));
+            runBuffer.error = message;
+            runBuffer.timings = { ...runBuffer.timings!, finishedAt: Date.now() };
+            publish(true);
             return;
           }
 
@@ -341,94 +351,75 @@ export function useChat(options: {
               case "block":
                 currentBlock = event.index;
                 break;
-              case "text":
-                patchRun((current) => {
-                  const block = event.block ?? currentBlock;
-                  return {
-                    ...current,
-                    timings: current.timings?.firstTokenAt
-                      ? current.timings
-                      : {
-                          ...(current.timings ?? { startedAt: Date.now() }),
-                          firstTokenAt: Date.now(),
-                        },
-                    blocks: { ...current.blocks, [block]: (current.blocks[block] ?? "") + event.delta },
+              case "text": {
+                const block = event.block ?? currentBlock;
+                runBuffer.blocks[block] = (runBuffer.blocks[block] ?? "") + event.delta;
+                if (!runBuffer.timings?.firstTokenAt) {
+                  runBuffer.timings = {
+                    ...(runBuffer.timings ?? { startedAt: Date.now() }),
+                    firstTokenAt: Date.now(),
                   };
-                });
+                }
+                publish();
                 break;
-              case "tool":
-                patchRun((current) => {
-                  if (event.status === "start") {
-                    return {
-                      ...current,
-                      tools: [
-                        ...current.tools,
-                        {
-                          id: event.id ?? `tool-${current.tools.length + 1}`,
-                          name: event.name,
-                          status: "start",
-                          args: event.args,
-                          at: Date.now(),
-                        },
-                      ],
-                    };
-                  }
-                  const tools = [...current.tools];
+              }
+              case "tool": {
+                if (event.status === "start") {
+                  runBuffer.tools.push({
+                    id: event.id ?? `tool-${runBuffer.tools.length + 1}`,
+                    name: event.name,
+                    status: "start",
+                    args: event.args,
+                    at: Date.now(),
+                  });
+                } else {
                   const index = event.id
-                    ? tools.findIndex((tool) => tool.id === event.id && tool.status === "start")
-                    : tools.map((tool) => tool.status).lastIndexOf("start");
-                  const target = index === -1 ? tools.length - 1 : index;
+                    ? runBuffer.tools.findIndex(
+                        (tool) => tool.id === event.id && tool.status === "start",
+                      )
+                    : runBuffer.tools.map((tool) => tool.status).lastIndexOf("start");
+                  const target = index === -1 ? runBuffer.tools.length - 1 : index;
                   if (target >= 0) {
-                    tools[target] = {
-                      ...tools[target]!,
-                      name: event.name || tools[target]!.name,
+                    runBuffer.tools[target] = {
+                      ...runBuffer.tools[target]!,
+                      name: event.name || runBuffer.tools[target]!.name,
                       status: event.status,
-                      args: event.args ?? tools[target]!.args,
+                      args: event.args ?? runBuffer.tools[target]!.args,
                       ...(event.result !== undefined ? { result: event.result } : {}),
                     };
                   }
-                  return { ...current, tools };
-                });
+                }
+                publish();
                 break;
+              }
               case "context":
                 nameIndexRef.current = event.docs;
                 setLibrary(event.docs);
-                patchRun((current) => ({
-                  ...current,
-                  citations: resolveCitationDocs(current.citations, event.docs),
-                }));
+                runBuffer.citations = resolveCitationDocs(runBuffer.citations, event.docs);
                 break;
-              case "citations":
-                patchRun((current) => {
-                  const merged = [...current.citations];
-                  for (const citation of event.citations) {
-                    const key = `${citation.document}|${citation.page}|${citation.blockId ?? ""}`;
-                    if (
-                      !merged.some(
-                        (item) => `${item.document}|${item.page}|${item.blockId ?? ""}` === key,
-                      )
-                    ) {
-                      merged.push(citation as Citation);
-                    }
+              case "citations": {
+                for (const citation of event.citations) {
+                  const key = `${citation.document}|${citation.page}|${citation.blockId ?? ""}`;
+                  if (
+                    !runBuffer.citations.some(
+                      (item) => `${item.document}|${item.page}|${item.blockId ?? ""}` === key,
+                    )
+                  ) {
+                    runBuffer.citations.push(citation as Citation);
                   }
-                  return {
-                    ...current,
-                    citations: resolveCitationDocs(merged, nameIndexRef.current),
-                  };
-                });
+                }
+                runBuffer.citations = resolveCitationDocs(runBuffer.citations, nameIndexRef.current);
+                publish();
                 break;
+              }
               case "done":
-                settle((current) => ({
-                  ...current,
-                  timings: { ...current.timings!, finishedAt: Date.now() },
-                }));
+                runBuffer.timings = { ...runBuffer.timings!, finishedAt: Date.now() };
+                publish(true);
                 break;
               case "error":
-                settle((current) => ({
-                  ...current,
-                  error: event.message,
-                  timings: { ...current.timings!, finishedAt: Date.now() },
-                }));
+                runBuffer.error = event.message;
+                runBuffer.timings = { ...runBuffer.timings!, finishedAt: Date.now() };
+                publish(true);
                 break;
             }
           };
@@ -453,29 +444,25 @@ export function useChat(options: {
           }
         } catch (error) {
           if ((error as Error).name === "AbortError") {
-            settle((current) => ({
-              ...current,
-              timings: { ...current.timings!, finishedAt: Date.now() },
-            }));
+            runBuffer.timings = { ...runBuffer.timings!, finishedAt: Date.now() };
+            publish(true);
           } else {
-            settle((current) => ({
-              ...current,
-              error: error instanceof Error ? error.message : "Network error",
-              timings: { ...current.timings!, finishedAt: Date.now() },
-            }));
+            runBuffer.error = error instanceof Error ? error.message : "Network error";
+            runBuffer.timings = { ...runBuffer.timings!, finishedAt: Date.now() };
+            publish(true);
           }
         } finally {
           abortRef.current = null;
           setBusy(false);
-          patchRun((current) => {
-            if (current.citations.length > 0) return current;
-            const tags = parseCitations(runText(current).answer);
-            const index =
-              nameIndexRef.current.length > 0 ? nameIndexRef.current : docsRef.current;
-            return tags.length > 0
-              ? { ...current, citations: resolveCitationDocs(tags, index) }
-              : current;
-          });
+          if (runBuffer.citations.length === 0) {
+            const tags = parseCitations(runText(runBuffer).answer);
+            if (tags.length > 0) {
+              const index =
+                nameIndexRef.current.length > 0 ? nameIndexRef.current : docsRef.current;
+              runBuffer.citations = resolveCitationDocs(tags, index);
+              publish(true);
+            }
+          }
           persist(turnsRef.current, docsRef.current, sessionId);
         }
       };
