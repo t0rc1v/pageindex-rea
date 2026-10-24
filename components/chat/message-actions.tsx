@@ -73,6 +73,8 @@ export interface BranchInfo {
   index: number;
   total: number;
   onSelect: (index: number) => void;
+  /** Noun for the accessible labels: "branch" (answers), "question" (wording). */
+  label?: string;
 }
 
 /**
@@ -112,6 +114,9 @@ export function MessageActions({
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // An errored or tool-only run has no prose to copy or export, but it still
+  // needs the branch control, Regenerate and the timestamp.
+  const hasText = text.trim().length > 0;
 
   useEffect(
     () => () => {
@@ -155,7 +160,7 @@ export function MessageActions({
         <div className="mr-1 flex items-center rounded-md border border-line bg-surface">
           <button
             type="button"
-            aria-label="Previous branch"
+            aria-label={`Previous ${branch.label ?? "branch"}`}
             onClick={() => branch.onSelect(Math.max(0, branch.index - 1))}
             disabled={branch.index <= 0}
             className="cursor-pointer rounded-l-md px-1 py-0.5 text-ink-muted hover:bg-paper hover:text-ink disabled:opacity-30"
@@ -167,7 +172,7 @@ export function MessageActions({
           </span>
           <button
             type="button"
-            aria-label="Next branch"
+            aria-label={`Next ${branch.label ?? "branch"}`}
             onClick={() => branch.onSelect(Math.min(branch.total - 1, branch.index + 1))}
             disabled={branch.index >= branch.total - 1}
             className="cursor-pointer rounded-r-md px-1 py-0.5 text-ink-muted hover:bg-paper hover:text-ink disabled:opacity-30"
@@ -177,11 +182,17 @@ export function MessageActions({
         </div>
       )}
 
-      <IconButton label={role === "user" ? "Copy message" : "Copy answer"} onClick={copy} active={copied}>
-        {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-      </IconButton>
+      {hasText && (
+        <IconButton
+          label={role === "user" ? "Copy message" : "Copy answer"}
+          onClick={copy}
+          active={copied}
+        >
+          {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+        </IconButton>
+      )}
 
-      {role === "assistant" && (
+      {role === "assistant" && hasText && (
         <div className="relative" ref={menuRef}>
           <IconButton label="Download" onClick={() => setMenuOpen((value) => !value)}>
             <Download className="size-3.5" />

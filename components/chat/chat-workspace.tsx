@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { citationKey, parseCitations, splitStreamingTail } from "@/lib/citations";
+import { answerRunsFor } from "@/lib/chat-variants";
 import type { Citation } from "@/lib/pageindex/types";
 import { useFetch } from "@/lib/client/hooks";
 import type { DocumentListResponse } from "@/lib/pageindex/types";
@@ -225,12 +226,17 @@ export function ChatWorkspace({ chatId, initialDocs }: { chatId?: string; initia
               )
             ) : (
               <div className="flex flex-col gap-8">
-                {chat.turns.map((turn) => (
+                {chat.turns.map((turn, index) => (
                   <Turn
                     key={turn.id}
                     turn={turn}
                     isLast={turn.id === lastTurnId}
                     busy={chat.busy}
+                    questionVersion={
+                      index > 0 && chat.turns[index - 1]!.role === "user"
+                        ? chat.turns[index - 1]!.active
+                        : 0
+                    }
                     resolveDocId={resolveDocId}
                     answerRef={(node) => {
                       if (node) answerNodes.current.set(turn.id, node);
@@ -407,6 +413,7 @@ function Turn({
   turn,
   isLast,
   busy,
+  questionVersion,
   resolveDocId,
   answerRef,
   getNode,
@@ -424,6 +431,8 @@ function Turn({
   turn: ChatTurn;
   isLast: boolean;
   busy: boolean;
+  /** Which wording of the preceding question this answer turn belongs to. */
+  questionVersion: number;
   resolveDocId: (name: string | undefined) => string | undefined;
   answerRef: (node: HTMLElement | null) => void;
   getNode: () => HTMLElement | null;
@@ -474,12 +483,25 @@ function Turn({
         <p className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-bubble px-3.5 py-2 text-[13.5px] leading-relaxed text-bubble-ink">
           {text}
         </p>
-        <MessageActions role="user" text={text} onEdit={onEdit} />
+        <MessageActions
+          role="user"
+          text={text}
+          onEdit={onEdit}
+          branch={{
+            index: turn.active,
+            total: turn.runs.length,
+            onSelect: onSelectRun,
+            label: "question",
+          }}
+        />
       </div>
     );
   }
 
-  const runningTool = run.tools.some((tool) => tool.status === "start");
+  // Only the answers to the visible wording take part in the branch control;
+  // the rest answer a previous version of the question.
+  const versions = answerRunsFor(turn.runs, questionVersion);
+  const versionPosition = Math.max(0, versions.indexOf(turn.active));
 
   return (
     <div className="group/message flex flex-col gap-1.5">
@@ -547,21 +569,26 @@ function Turn({
 
       {!turn.streaming && (
         <div className="flex flex-col gap-1">
-          {!runningTool && stable && (
-            <MessageActions
-              role="assistant"
-              text={answer}
-              citations={citations}
-              question={question}
-              at={run.timings?.finishedAt}
-              getNode={getNode}
-              onRegenerate={isLast ? onRegenerate : undefined}
-              canRegenerate={!busy}
-              branch={{ index: turn.active, total: turn.runs.length, onSelect: onSelectRun }}
-              feedback={turn.feedback}
-              onFeedback={onFeedback}
-            />
-          )}
+          {/* Rendered even with no prose and with a tool that never reported a
+              stop: a failed or interrupted run still needs a way out, and
+              Regenerate used to vanish along with the answer. */}
+          <MessageActions
+            role="assistant"
+            text={answer}
+            citations={citations}
+            question={question}
+            at={run.timings?.finishedAt}
+            getNode={getNode}
+            onRegenerate={isLast ? onRegenerate : undefined}
+            canRegenerate={!busy}
+            branch={{
+              index: versions.length > 0 ? versionPosition : turn.active,
+              total: versions.length > 0 ? versions.length : turn.runs.length,
+              onSelect: (at) => onSelectRun(versions[at] ?? at),
+            }}
+            feedback={turn.feedback}
+            onFeedback={onFeedback}
+          />
           <Sources citations={citations} onPreview={onPreview} onOpenPage={onOpenPage} />
         </div>
       )}

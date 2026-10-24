@@ -46,12 +46,18 @@ export interface StoredRun {
   tools: StoredTool[];
   error?: string;
   timings?: TurnTimings;
+  /**
+   * Assistant runs only: the index of the question version (in the preceding
+   * user turn) this answer replied to. Editing a question appends a version and
+   * asks it again, so answers and questions pair up by index, not by position.
+   */
+  questionRun?: number;
 }
 
 export interface StoredTurn {
   id: string;
   role: "user" | "assistant";
-  /** Assistants: one per regeneration. Users: exactly one. */
+  /** Assistants: one per regeneration. Users: one per edit of the question. */
   runs: StoredRun[];
   activeRun: number;
   feedback?: "up" | "down";

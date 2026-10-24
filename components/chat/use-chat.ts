@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { parseCitations, resolveCitationDocs } from "@/lib/citations";
+import { answerRunIndex } from "@/lib/chat-variants";
 import {
   deriveTitle,
   getChat,
@@ -22,12 +23,19 @@ export interface ChatRun {
   tools: StoredTool[];
   error?: string;
   timings?: TurnTimings;
+  /** Assistant runs: which version of the question this answer replied to. */
+  questionRun?: number;
 }
 
 export interface ChatTurn {
   id: string;
   role: "user" | "assistant";
-  /** Assistants keep one run per regeneration; users hold exactly one. */
+  /**
+   * Assistants keep one run per regeneration, users one per edit of the
+   * question, so neither a previous answer nor a previous wording is lost: both
+   * sit behind a branch control. An assistant run names the question version it
+   * answered in `questionRun`.
+   */
   runs: ChatRun[];
   active: number;
   streaming: boolean;
@@ -119,6 +127,7 @@ function toStored(
           tools: run.tools,
           ...(run.error ? { error: run.error } : {}),
           ...(run.timings ? { timings: run.timings } : {}),
+          ...(run.questionRun !== undefined ? { questionRun: run.questionRun } : {}),
         }),
       ),
       activeRun: turn.active,
@@ -141,6 +150,8 @@ function fromStored(chat: StoredChat): ChatTurn[] {
       })),
       ...(run.error ? { error: run.error } : {}),
       ...(run.timings ? { timings: run.timings } : {}),
+      // Chats stored before edit-variants existed answered the only wording.
+      ...(turn.role === "assistant" ? { questionRun: run.questionRun ?? 0 } : {}),
     })),
     active: turn.activeRun ?? 0,
     streaming: false,
@@ -262,7 +273,7 @@ export function useChat(options: {
     (base: ChatTurn[], assistantId: string, runIndex: number) => {
       const history = base
         .map((turn) => {
-          const { answer } = runText(turn.runs[turn.runs.length - 1] ?? emptyRun());
+          const { answer } = runText(activeRun(turn));
           return {
             role: turn.role,
             content: turn.role === "user" ? answer : stripCitations(answer),
@@ -281,20 +292,37 @@ export function useChat(options: {
       // Accumulate into one mutable run buffer, then publish a copy. Writing
       // through React state on every token raced with the render→ref sync and
       // silently dropped characters on long streams.
+      //
+      // The placeholder run already names the question version this answer
+      // belongs to; the streamed snapshot must carry it through.
+      const queued = turnsRef.current.find((turn) => turn.id === assistantId)?.runs[runIndex];
       const runBuffer: ChatRun = {
         blocks: {},
         citations: [],
         tools: [],
         timings: { startedAt: Date.now() },
+        ...(queued?.questionRun !== undefined ? { questionRun: queued.questionRun } : {}),
       };
 
       const publish = (settled = false) => {
+        if (settled) {
+          // A stream can end mid-tool (max steps, abort, provider hiccup). Nothing
+          // is running once it is over, and a leftover "start" tool would keep
+          // the whole actions row — Regenerate included — hidden forever.
+          runBuffer.tools = runBuffer.tools.map((tool) =>
+            tool.status === "start" ? { ...tool, status: "stop" as const } : tool,
+          );
+          if (runBuffer.timings && !runBuffer.timings.finishedAt) {
+            runBuffer.timings = { ...runBuffer.timings, finishedAt: Date.now() };
+          }
+        }
         const snapshot: ChatRun = {
           blocks: { ...runBuffer.blocks },
           citations: [...runBuffer.citations],
           tools: runBuffer.tools.map((tool) => ({ ...tool })),
           ...(runBuffer.error ? { error: runBuffer.error } : {}),
           ...(runBuffer.timings ? { timings: { ...runBuffer.timings } } : {}),
+          ...(runBuffer.questionRun !== undefined ? { questionRun: runBuffer.questionRun } : {}),
         };
         const next = turnsRef.current.map((turn) => {
           if (turn.id !== assistantId) return turn;
@@ -460,9 +488,12 @@ export function useChat(options: {
               const index =
                 nameIndexRef.current.length > 0 ? nameIndexRef.current : docsRef.current;
               runBuffer.citations = resolveCitationDocs(tags, index);
-              publish(true);
             }
           }
+          // Always settle: a body that closes without a `done` event (truncated
+          // stream, aborted read) must still stop the turn, or the answer sits in
+          // "streaming" forever and its actions never render.
+          publish(true);
           persist(turnsRef.current, docsRef.current, sessionId);
         }
       };
@@ -488,7 +519,7 @@ export function useChat(options: {
       const assistantTurn: ChatTurn = {
         id: assistantId,
         role: "assistant",
-        runs: [{ ...emptyRun(), timings: { startedAt: Date.now() } }],
+        runs: [{ ...emptyRun(), timings: { startedAt: Date.now() }, questionRun: 0 }],
         active: 0,
         streaming: true,
       };
@@ -502,7 +533,7 @@ export function useChat(options: {
     [busy, startRun],
   );
 
-  /** Re-answer the last question as a new sibling run. */
+  /** Re-answer the active question version as a new sibling run. */
   const regenerate = useCallback(() => {
     if (busy) return;
     const current = turnsRef.current;
@@ -515,8 +546,15 @@ export function useChat(options: {
     }
     if (lastUser === -1) return;
 
+    const question = current[lastUser]!;
+    const questionRun = question.active;
     const base = current.slice(0, lastUser + 1);
     const existing = current[lastUser + 1];
+    const answerRun: ChatRun = {
+      ...emptyRun(),
+      timings: { startedAt: Date.now() },
+      questionRun,
+    };
     const runIndex = existing && existing.role === "assistant" ? existing.runs.length : 0;
     const assistantId = existing && existing.role === "assistant" ? existing.id : newId("assistant");
 
@@ -527,7 +565,7 @@ export function useChat(options: {
             {
               ...existing,
               streaming: true,
-              runs: [...existing.runs, { ...emptyRun(), timings: { startedAt: Date.now() } }],
+              runs: [...existing.runs, answerRun],
               active: runIndex,
             },
           ]
@@ -536,7 +574,7 @@ export function useChat(options: {
             {
               id: assistantId,
               role: "assistant" as const,
-              runs: [{ ...emptyRun(), timings: { startedAt: Date.now() } }],
+              runs: [answerRun],
               active: 0,
               streaming: true,
             },
@@ -548,12 +586,28 @@ export function useChat(options: {
     startRun(base, assistantId, runIndex);
   }, [busy, startRun]);
 
+  /**
+   * Switch variant. A question version and the answer that replied to it move
+   * together, so the transcript never shows wording it was not answered with.
+   */
   const selectRun = useCallback((turnId: string, index: number) => {
-    const next = turnsRef.current.map((turn) =>
-      turn.id === turnId
-        ? { ...turn, active: Math.min(Math.max(index, 0), turn.runs.length - 1) }
-        : turn,
-    );
+    const current = turnsRef.current;
+    const position = current.findIndex((turn) => turn.id === turnId);
+    if (position === -1) return;
+    const target = current[position]!;
+    const chosen = Math.min(Math.max(index, 0), target.runs.length - 1);
+
+    const next = current.map((turn, at) => {
+      if (at === position) return { ...turn, active: chosen };
+      if (turn.role === "assistant" && at === position + 1 && target.role === "user") {
+        return { ...turn, active: answerRunIndex(turn.runs, chosen) };
+      }
+      if (turn.role === "user" && at === position - 1 && target.role === "assistant") {
+        const question = target.runs[chosen]?.questionRun ?? turn.active;
+        return { ...turn, active: Math.min(Math.max(question, 0), turn.runs.length - 1) };
+      }
+      return turn;
+    });
     turnsRef.current = next;
     setTurns(next);
   }, []);
@@ -568,39 +622,57 @@ export function useChat(options: {
     setTurns(next);
   }, []);
 
-  /** Edit an earlier question and re-run from that point. */
+  /**
+   * Edit a question and re-run from that point. The edit becomes a new version
+   * of the question and the answer becomes a sibling run, so the previous
+   * wording and the answer it got stay reachable behind the branch control.
+   */
   const editAndResend = useCallback(
     (turnId: string, raw: string) => {
       const text = raw.trim();
       if (!text || busy) return;
       const current = turnsRef.current;
-      const index = current.findIndex((turn) => turn.id === turnId && turn.role === "user");
-      if (index === -1) return;
-      const base = current.slice(0, index);
+      const position = current.findIndex((turn) => turn.id === turnId && turn.role === "user");
+      if (position === -1) return;
+
+      const question = current[position]!;
+      const version = question.runs.length;
       const userTurn: ChatTurn = {
-        ...current[index]!,
+        ...question,
         runs: [
-          {
-            ...current[index]!.runs[0]!,
-            blocks: { 0: text },
-            timings: { startedAt: Date.now() },
-          },
+          ...question.runs,
+          { blocks: { 0: text }, citations: [], tools: [], timings: { startedAt: Date.now() } },
         ],
-        active: 0,
+        active: version,
+        // The re-ask goes out with the scope selected right now, so the chips
+        // above the bubble must show that scope, not the one first used.
+        docs: docsRef.current,
       };
-      const assistantId = newId("assistant");
-      const assistantTurn: ChatTurn = {
-        id: assistantId,
-        role: "assistant",
-        runs: [{ ...emptyRun(), timings: { startedAt: Date.now() } }],
-        active: 0,
-        streaming: true,
+
+      const following = current[position + 1];
+      const existing = following?.role === "assistant" ? following : undefined;
+      const answerRun: ChatRun = {
+        ...emptyRun(),
+        timings: { startedAt: Date.now() },
+        questionRun: version,
       };
-      const nextTurns = [...base, userTurn, assistantTurn];
+      const runIndex = existing ? existing.runs.length : 0;
+      const assistantId = existing?.id ?? newId("assistant");
+      const assistantTurn: ChatTurn = existing
+        ? { ...existing, runs: [...existing.runs, answerRun], active: runIndex, streaming: true }
+        : {
+            id: assistantId,
+            role: "assistant",
+            runs: [answerRun],
+            active: 0,
+            streaming: true,
+          };
+
+      const nextTurns = [...current.slice(0, position), userTurn, assistantTurn];
       setTurns(nextTurns);
       turnsRef.current = nextTurns;
       setBusy(true);
-      startRun([...base, userTurn], assistantId, 0);
+      startRun([...current.slice(0, position), userTurn], assistantId, runIndex);
     },
     [busy, startRun],
   );

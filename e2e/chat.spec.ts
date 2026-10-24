@@ -31,11 +31,50 @@ test.describe("conversation surface", () => {
     await page.getByPlaceholder(/Ask a question/).fill("Summarize the key findings.");
     await page.getByLabel("Send message").click();
 
-    const regenerate = page.getByLabel("Regenerate");
-    await expect(regenerate).toBeVisible({ timeout: 30_000 });
-    await regenerate.click();
+    // Regenerating stays available after a variant lands: variants accumulate.
+    for (const expected of ["2/2", "3/3"]) {
+      const regenerate = page.getByLabel("Regenerate");
+      await expect(regenerate).toBeVisible({ timeout: 30_000 });
+      await regenerate.click();
+      await expect(page.getByLabel("Previous branch").locator("..")).toContainText(expected, {
+        timeout: 30_000,
+      });
+    }
+    await expect(page.getByLabel("Regenerate")).toBeVisible();
+  });
 
-    await expect(page.getByLabel("Previous branch")).toBeVisible({ timeout: 30_000 });
+  test("editing a question keeps the previous answer as a variant", async ({ page }) => {
+    await page.goto("/chat");
+    await page.getByPlaceholder(/Ask a question/).fill("Summarize the key findings.");
+    await page.getByLabel("Send message").click();
+    await expect(page.getByLabel("Regenerate")).toBeVisible({ timeout: 30_000 });
+
+    await page.getByLabel("Edit message").click();
+    // The inline editor is the first textarea; the composer sits under it.
+    await page.locator("textarea").first().fill("Which risks does the report name?");
+    await page.getByRole("button", { name: /Save & resend/ }).click();
+
+    // Both sides of the exchange keep the old wording behind a branch control.
+    const questionBranch = page.getByLabel("Previous question").locator("..");
+    await expect(questionBranch).toContainText("2/2", { timeout: 30_000 });
+    await expect(page.locator("p.bg-bubble").first()).toContainText("Which risks");
+
+    await page.getByLabel("Previous question").click();
+    await expect(page.locator("p.bg-bubble").first()).toContainText("Summarize the key findings.");
+
+    await page.getByLabel("Next question").click();
+    await expect(page.locator("p.bg-bubble").first()).toContainText("Which risks");
+    await expect(page.getByLabel("Regenerate")).toBeVisible();
+
+    // The branch control on the answer counts only this wording's answers.
+    await expect(page.getByLabel("Previous branch")).toHaveCount(0);
+    await page.getByLabel("Regenerate").click();
+    await expect(page.getByLabel("Previous branch").locator("..")).toContainText("2/2", {
+      timeout: 30_000,
+    });
+    await page.getByLabel("Previous question").click();
+    await expect(page.getByLabel("Previous branch")).toHaveCount(0);
+    await page.getByLabel("Next question").click();
     await expect(page.getByLabel("Previous branch").locator("..")).toContainText("2/2");
   });
 

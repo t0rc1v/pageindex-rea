@@ -349,7 +349,7 @@ live Cloud API.
   `/mcp` + OAuth is a separate product.
 - **True PDF rendering** — the Cloud API serves page images, not the source PDF.
 - **Response branching** — regenerate replaces the answer instead of keeping
-  sibling variants.
+  sibling variants. *(Since superseded — see 9.10, item 1.)*
 
 ### Bugs found and fixed while verifying
 
@@ -385,7 +385,7 @@ classes need very different work:
 
 | Gap | Detail | Blocked by |
 | --- | --- | --- |
-| Response branching | Regenerate replaces the answer. The official keeps sibling runs behind `MessageBranchPrevious` / `MessageBranchNext` ("Previous branch" / "Next branch"); those primitives ship in its bundle. | **[ui]** per-turn runs + a branch selector |
+| Response branching | Delivered (9.10 item 1): per-turn runs behind `‹ 2/3 ›`, on answers **and** on edited questions. The official keeps sibling runs behind `MessageBranchPrevious` / `MessageBranchNext`. Still missing: a conversation *tree*, where a later turn survives a branch switch. | — |
 | **Table / diagram / image artifact menu** | Theirs: `Copy table as MD/CSV/TSV`, `Download table as CSV/Markdown`, `Download diagram as SVG/PNG/MMD`, `Copy code`, `Download image`, `Copy link`. Ours: table → copy MD / download CSV, code → copy. Missing: TSV, per-table Markdown download, **Mermaid rendering** (so no diagram export), image download, copy link. | **[ui]** (Mermaid is a lazy-loaded dep) |
 | **Answer export formats** | Theirs emit `.md`, `.docx`, `.pdf` with progress toasts. Ours emits `.md` and "Print → Save as PDF". | **[ui]** — `docx`/`pdf` are client libraries, not a service |
 | **Image / table citation variants** | Theirs have dedicated previews (`Cited image`, `Cited pages`) and a per-kind block pill. We resolve text blocks well; a figure citation shows the surrounding page, not the extracted figure. We already proxy `GET /doc/{id}/image/{img_id}` and receive `block_type` + `bbox`, so the data is present. | **[ui]** |
@@ -532,7 +532,7 @@ withholds. Line references point at the commit that added it.
 
 | # | Item | Where |
 | --- | --- | --- |
-| 1 | Response variants + branch control | `use-chat.ts` keeps `runs[]` per turn; `message-actions.tsx` renders `‹ 2/3 ›`, visible whenever more than one run exists |
+| 1 | Response variants + branch control | `use-chat.ts` keeps `runs[]` per turn; `lib/chat-variants.ts` pairs a question version with the answers it got, so **editing a question** also keeps the previous wording and its answer behind a branch control (`‹ 2/3 ›`), with Regenerate staying available for every variant |
 | 2 | Artifact menu completion | `markdown.tsx` (TSV copy, MD download, image save/link), `markdown-mermaid.tsx` (lazy Mermaid + SVG/PNG/MMD export) |
 | 3 | Export formats | `chat-export.ts`: `exportDocx` (real OOXML via `docx`) and `exportPdf` (jsPDF text layout) |
 | 4 | Citation variants | `citation-card.tsx`: figure/table citations are cropped from the page render and labelled "Cited figure" / "Cited table" |
