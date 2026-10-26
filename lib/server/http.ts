@@ -42,8 +42,15 @@ export function errorResponse(error: unknown): Response {
     return jsonResponse(body, { status: 504 });
   }
 
-  const message = error instanceof Error ? error.message : "Unexpected error";
-  const body: ApiErrorBody = { error: message, code: "INTERNAL", status: 500 };
+  // Anything not modelled above is an internal failure: log it, but do not echo
+  // driver messages (table names, constraint names, connection strings) to the
+  // caller.
+  console.error("unhandled route error", error);
+  const body: ApiErrorBody = {
+    error: "Something went wrong on our side. Try again.",
+    code: "INTERNAL",
+    status: 500,
+  };
   return jsonResponse(body, { status: 500 });
 }
 

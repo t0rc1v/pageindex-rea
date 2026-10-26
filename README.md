@@ -380,6 +380,10 @@ keeps deletions and renames honest.
   app and the direct one for the migration job.
 - Claim anything uploaded before the registry existed.
 - Configure the Clerk webhook and confirm `CLERK_WEBHOOK_SIGNING_SECRET` is set.
+- Turn on Neon backups / point-in-time restore for the production branch, and
+  keep `next dev` pointing at a branch you do not mind losing.
+- Connect a log sink: unhandled route errors are logged server-side and returned
+  to the caller as a generic 500, so the log is the only place the cause appears.
 - A CSP is **not** configured: Clerk's Frontend API origin is instance-specific,
   and a wrong `script-src` breaks sign-in with no useful error. `clerkMiddleware`
   accepts a `contentSecurityPolicy` option when that is worth doing deliberately.

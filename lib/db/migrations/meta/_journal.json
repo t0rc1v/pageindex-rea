@@ -15,6 +15,13 @@
       "when": 1793052160809,
       "tag": "0001_steady_roxanne_simpson",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793053021989,
+      "tag": "0002_abnormal_marten_broadcloak",
+      "breakpoints": true
     }
   ]
 }

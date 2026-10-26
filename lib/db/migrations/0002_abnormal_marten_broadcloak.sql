@@ -1,0 +1,1 @@
+CREATE INDEX "documents_pageindex_idx" ON "documents" USING btree ("pageindex_id");

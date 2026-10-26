@@ -84,6 +84,9 @@ export const documents = pgTable(
   },
   (t) => [
     uniqueIndex("documents_tenant_pageindex_idx").on(t.tenantId, t.pageindexId),
+    // Deleting asks "does any other tenant still reference this upstream id?",
+    // which filters on the id alone and cannot use the composite above.
+    index("documents_pageindex_idx").on(t.pageindexId),
     index("documents_tenant_name_idx").on(t.tenantId, t.name),
   ],
 );
