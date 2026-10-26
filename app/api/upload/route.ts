@@ -2,6 +2,7 @@ import { submitDocument } from "@/lib/pageindex/client";
 import { registerUploadResult } from "@/lib/server/documents";
 import { folderBelongsToTenant } from "@/lib/server/folders";
 import { errorResponse, jsonResponse } from "@/lib/server/http";
+import { RATE_LIMITS } from "@/lib/server/limits";
 import { rateLimit, rateLimited } from "@/lib/server/rate-limit";
 import { requireTenant } from "@/lib/server/tenant";
 
@@ -81,7 +82,7 @@ export async function POST(request: Request) {
   const { tenantId, userId } = await requireTenant();
 
   // A 50 MB upload plus upstream indexing is the costliest call in the app.
-  const verdict = await rateLimit(`upload:${userId}`, 20, 3600);
+  const verdict = await rateLimit(`upload:${userId}`, RATE_LIMITS.uploadsPerHour, 3600);
   if (!verdict.allowed) return rateLimited(verdict);
 
   try {

@@ -8,6 +8,7 @@ import {
   saveChat,
 } from "@/lib/server/chats";
 import { errorResponse, jsonResponse } from "@/lib/server/http";
+import { RATE_LIMITS } from "@/lib/server/limits";
 import { rateLimit, rateLimited } from "@/lib/server/rate-limit";
 import { requireTenant } from "@/lib/server/tenant";
 
@@ -38,7 +39,7 @@ export async function PUT(request: Request, ctx: RouteContext<"/api/chats/[chatI
   const chatId = parseChatId((await ctx.params).chatId);
   if (!chatId) return notFound();
 
-  const verdict = await rateLimit(`chats-write:${userId}`, 240, 60);
+  const verdict = await rateLimit(`chats-write:${userId}`, RATE_LIMITS.chatWritesPerMinute, 60);
   if (!verdict.allowed) return rateLimited(verdict);
 
   // A conversation is rewritten whole on every settled run. Cap the body so a
@@ -88,7 +89,7 @@ export async function PATCH(request: Request, ctx: RouteContext<"/api/chats/[cha
   const chatId = parseChatId((await ctx.params).chatId);
   if (!chatId) return notFound();
 
-  const verdict = await rateLimit(`chats-write:${userId}`, 240, 60);
+  const verdict = await rateLimit(`chats-write:${userId}`, RATE_LIMITS.chatWritesPerMinute, 60);
   if (!verdict.allowed) return rateLimited(verdict);
 
   const body = (await request.json().catch(() => null)) as { title?: unknown } | null;
@@ -111,7 +112,7 @@ export async function DELETE(_request: Request, ctx: RouteContext<"/api/chats/[c
   const chatId = parseChatId((await ctx.params).chatId);
   if (!chatId) return notFound();
 
-  const verdict = await rateLimit(`chats-write:${userId}`, 240, 60);
+  const verdict = await rateLimit(`chats-write:${userId}`, RATE_LIMITS.chatWritesPerMinute, 60);
   if (!verdict.allowed) return rateLimited(verdict);
 
   return (await deleteChat(tenantId, userId, chatId))

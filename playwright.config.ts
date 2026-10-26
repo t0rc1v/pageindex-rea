@@ -66,6 +66,9 @@ export default defineConfig({
         PAGEINDEX_API_URL: "http://127.0.0.1:4319",
         PAGEINDEX_API_KEY: "test-key",
         OPENAI_API_KEY: "",
+        // The suite uploads on every run; the production ceiling would throttle
+        // it within the hour. The limit itself is still exercised, just higher.
+        RATE_LIMIT_UPLOADS_PER_HOUR: "500",
       },
     },
   ],

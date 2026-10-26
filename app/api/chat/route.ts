@@ -5,6 +5,7 @@ import { hasLlmKey, openMcpChatStream } from "@/lib/pageindex/mcp-chat";
 import type { ChatMessage, ChatStreamEvent } from "@/lib/pageindex/types";
 import { documentsByIds, listTenantDocuments, ownedDocumentIds } from "@/lib/server/documents";
 import { errorResponse, jsonResponse } from "@/lib/server/http";
+import { RATE_LIMITS } from "@/lib/server/limits";
 import { rateLimit, rateLimited } from "@/lib/server/rate-limit";
 import { requireTenant } from "@/lib/server/tenant";
 
@@ -109,7 +110,7 @@ export async function POST(request: Request) {
   const { tenantId, userId } = await requireTenant();
 
   // Streaming completions are the most expensive thing this app does.
-  const verdict = await rateLimit(`chat:${userId}`, 30, 60);
+  const verdict = await rateLimit(`chat:${userId}`, RATE_LIMITS.chatPerMinute, 60);
   if (!verdict.allowed) return rateLimited(verdict);
 
   try {
