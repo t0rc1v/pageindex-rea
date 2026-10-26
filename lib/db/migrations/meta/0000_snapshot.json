@@ -1,5 +1,5 @@
 {
-  "id": "13522fb1-493d-4fc9-a7fb-21563f730146",
+  "id": "543dfb9c-acbe-4973-bbd5-76e8d09eab01",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -131,7 +131,7 @@
         },
         "chat_id": {
           "name": "chat_id",
-          "type": "uuid",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
@@ -225,10 +225,9 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "text",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "tenant_id": {
           "name": "tenant_id",

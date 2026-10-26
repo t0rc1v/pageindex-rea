@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import { parseCitations, resolveCitationDocs } from "@/lib/citations";
 import { answerRunIndex } from "@/lib/chat-variants";
 import {
   deriveTitle,
-  getChat,
+  fetchChat,
   newChatId,
   saveChat,
   type StoredChat,
@@ -168,6 +169,8 @@ export interface UseChatResult {
   library: ChatDoc[];
   setDocs: (docs: ChatDoc[]) => void;
   busy: boolean;
+  /** Hydrating a stored conversation; the transcript is not ready to answer. */
+  loading: boolean;
   send: (text: string) => void;
   regenerate: () => void;
   selectRun: (turnId: string, index: number) => void;
@@ -194,16 +197,11 @@ export function useChat(options: {
   initialDocs?: ChatDoc[];
 }): UseChatResult {
   const [chatId, setChatId] = useState<string | null>(options.chatId ?? null);
-  const [turns, setTurns] = useState<ChatTurn[]>(() => {
-    if (!options.chatId) return [];
-    const stored = getChat(options.chatId);
-    return stored ? fromStored(stored) : [];
-  });
-  const [docs, setDocsState] = useState<ChatDoc[]>(() => {
-    if (!options.chatId) return options.initialDocs ?? [];
-    const stored = getChat(options.chatId);
-    return stored?.docs?.length ? stored.docs : options.initialDocs ?? [];
-  });
+  const [turns, setTurns] = useState<ChatTurn[]>([]);
+  const [docs, setDocsState] = useState<ChatDoc[]>(options.initialDocs ?? []);
+  // A stored chat starts loading and is only cleared once its payload lands; the
+  // page remounts per chat id, so a navigation never shows stale turns.
+  const [loading, setLoading] = useState(Boolean(options.chatId));
   const [library, setLibrary] = useState<ChatDoc[]>(options.initialDocs ?? []);
   const [context, setContext] = useState<PageContext[]>([]);
   const [busy, setBusy] = useState(false);
@@ -216,6 +214,40 @@ export function useChat(options: {
   const turnsRef = useRef(turns);
   const contextRef = useRef(context);
   const nameIndexRef = useRef<ChatDoc[]>(options.initialDocs ?? []);
+
+  // A stored conversation now arrives over the network, so the first paint of
+  // `/chat/[id]` is a skeleton instead of a synchronous localStorage read.
+  // `createdAt` is restored too, or the next save would rewrite its position in
+  // Recents with today's timestamp.
+  useEffect(() => {
+    const id = options.chatId;
+    if (!id) return;
+
+    let cancelled = false;
+
+    void fetchChat(id)
+      .then((stored) => {
+        if (cancelled) return;
+        if (stored) {
+          createdAt.current = stored.createdAt;
+          setTurns(fromStored(stored));
+          setDocsState(stored.docs?.length ? stored.docs : options.initialDocs ?? []);
+        }
+        setLoading(false);
+      })
+      .catch((error: unknown) => {
+        console.error("fetchChat", error);
+        if (cancelled) return;
+        setLoading(false);
+        toast.error("Could not open this conversation.");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // `initialDocs` is only a fallback for chats saved without a scope, and it is
+    // undefined on `/chat/[chatId]`, so it cannot retrigger this fetch.
+  }, [options.chatId, options.initialDocs]);
 
   useEffect(() => {
     docsRef.current = docs;
@@ -506,7 +538,7 @@ export function useChat(options: {
   const send = useCallback(
     (raw: string) => {
       const text = raw.trim();
-      if (!text || busy) return;
+      if (!text || busy || loading) return;
       const userTurn: ChatTurn = {
         id: newId("user"),
         role: "user",
@@ -530,7 +562,7 @@ export function useChat(options: {
       setBusy(true);
       startRun(base, assistantId, 0);
     },
-    [busy, startRun],
+    [busy, loading, startRun],
   );
 
   /** Re-answer the active question version as a new sibling run. */
@@ -610,17 +642,24 @@ export function useChat(options: {
     });
     turnsRef.current = next;
     setTurns(next);
-  }, []);
+    // Which variant is on screen is stored state (`active_run`), so it survives
+    // a reload instead of silently resetting to the newest answer.
+    if (chatId) persist(next, docsRef.current, chatId);
+  }, [chatId, persist]);
 
-  const setFeedback = useCallback((turnId: string, value: "up" | "down") => {
-    const next = turnsRef.current.map((turn) =>
-      turn.id === turnId
-        ? { ...turn, feedback: turn.feedback === value ? undefined : value }
-        : turn,
-    );
-    turnsRef.current = next;
-    setTurns(next);
-  }, []);
+  const setFeedback = useCallback(
+    (turnId: string, value: "up" | "down") => {
+      const next = turnsRef.current.map((turn) =>
+        turn.id === turnId
+          ? { ...turn, feedback: turn.feedback === value ? undefined : value }
+          : turn,
+      );
+      turnsRef.current = next;
+      setTurns(next);
+      if (chatId) persist(next, docsRef.current, chatId);
+    },
+    [chatId, persist],
+  );
 
   /**
    * Edit a question and re-run from that point. The edit becomes a new version
@@ -684,6 +723,7 @@ export function useChat(options: {
     library: library.length > 0 ? library : docs,
     setDocs,
     busy,
+    loading,
     send,
     regenerate,
     selectRun,

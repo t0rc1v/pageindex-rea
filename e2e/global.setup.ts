@@ -34,5 +34,9 @@ setup("sign in the test user", async ({ page }) => {
   await page.goto("/chat");
   await expect(page).toHaveURL(/\/chat$/);
 
+  // The suite writes real rows to the development database, so it starts from an
+  // empty Recents; leftover conversations would leak into later assertions.
+  await page.request.delete("/api/chats");
+
   await page.context().storageState({ path: STATE_PATH });
 });

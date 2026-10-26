@@ -136,12 +136,14 @@ multi-statement writes atomic, since that driver has no interactive transactions
 /sign-in              Clerk sign-in (catch-all)
 /sign-up              Clerk sign-up (catch-all)
 /chat                 new conversation (optionally ?docs=id,id)
-/chat/[chatId]        stored conversation (localStorage)
+/chat/[chatId]        stored conversation (Neon)
 /library              documents + folders
 /doc/[docId]          reader (tree + pages + page image)
 /settings             connection, local data, chat lane notes
 
 /api/me               session probe: { userId, orgId, orgRole, orgSlug }
+/api/chats            GET  Recents · DELETE all of the caller's conversations
+/api/chats/[chatId]   GET full conversation · PUT upsert · PATCH rename · DELETE
 ```
 
 ## Architecture
@@ -259,7 +261,8 @@ lib/
   pageindex/chat-stream.ts     SSE → normalized events (verified grammar)
   citations.ts                 tag parsing, numbering, stream-safe tokenizing
   citation-placement.ts        where the citation preview sits (measured, clamped)
-  chat-store.ts                conversations in localStorage
+  chat-store.ts                conversation cache + write path (client)
+  server/chats.ts              conversations, scoped by tenant and author
   chat-types.ts                shapes shared by the browser store and Postgres
   db/schema.ts                 tenants, users, documents, chats, turns, runs
   db/migrations/               generated SQL, applied with db:migrate
@@ -278,9 +281,10 @@ scripts/mock-pageindex-api.mjs
   same upstream account because there is a single API key. Tenancy is enforced
   by this app — `documents` is the ownership registry — so the BFF must check
   it on every document route; the upstream will serve any id it is given.
-- **Conversations are local** to this browser; the Neon layer exists but the
-  store has not been moved onto it yet, so Recents does not follow a user across
-  devices.
+- **Conversations are private to their author** inside a tenant. Documents are
+  the shared artifact — they are tenant-scoped, so "Shared with me" works — while
+  a transcript stays personal until sharing ships. Chats left in `localStorage`
+  by earlier builds are imported once, on the first authenticated load.
 - **No sharing or billing.** Chat/document share links, subscriptions, seats and
   team spaces are deliberately out of scope for this build.
 - **PDF fidelity.** The Cloud API exposes rendered page images, not the original

@@ -207,12 +207,12 @@ export function SettingsView() {
                       const ok = await confirm({
                         title: "Delete all conversations?",
                         description:
-                          "Every chat stored in this browser is removed. Documents and their indexes are untouched.",
+                          "Every conversation in your account is removed, for this workspace. Documents and their indexes are untouched.",
                         confirmLabel: "Delete conversations",
                         tone: "danger",
                       });
                       if (!ok) return;
-                      clearChats();
+                      await clearChats();
                       toast.success("Conversations cleared");
                     })();
                   }}

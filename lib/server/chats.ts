@@ -1,0 +1,268 @@
+import "server-only";
+
+import { and, asc, desc, eq } from "drizzle-orm";
+import { z } from "zod";
+
+import type { DocRef, StoredCitation, StoredChat, StoredTool } from "@/lib/chat-types";
+import { getDb } from "@/lib/db";
+import { chatRuns, chatTurns, chats } from "@/lib/db/schema";
+
+/**
+ * Conversations, scoped twice.
+ *
+ * `tenant_id` is the security boundary — a chat never crosses a tenant, whether
+ * that tenant is a personal space or an Organization. `created_by` is the
+ * visibility rule inside a tenant: transcripts are private to their author, and
+ * documents are the thing a team shares. That is also why every query below
+ * carries both predicates: removing one should be a deliberate act, not an
+ * oversight in a single handler.
+ */
+
+const MAX_TITLE = 200;
+export const MAX_TURNS = 400;
+const MAX_RUNS = 20;
+
+const docRefSchema = z.object({ id: z.string().min(1).max(200), name: z.string().max(500) });
+
+const timingsSchema = z.object({
+  startedAt: z.number().finite(),
+  firstTokenAt: z.number().finite().optional(),
+  finishedAt: z.number().finite().optional(),
+});
+
+/**
+ * Citations and tools arrive from the model's stream, so the schema validates
+ * only what this layer indexes and queries on; the rest rides along untouched.
+ */
+const citationSchema = z.looseObject({
+  document: z.string().max(500),
+  page: z.number().int().min(0).max(1_000_000),
+});
+
+const toolSchema = z.looseObject({
+  name: z.string().max(200),
+  status: z.enum(["start", "stop", "error"]),
+});
+
+const runSchema = z.object({
+  blocks: z.record(z.string(), z.string()).default({}),
+  citations: z.array(citationSchema).max(500).default([]),
+  tools: z.array(toolSchema).max(200).default([]),
+  error: z.string().max(2_000).optional(),
+  timings: timingsSchema.optional(),
+  questionRun: z.number().int().min(0).max(1_000).optional(),
+});
+
+const turnSchema = z.object({
+  role: z.enum(["user", "assistant"]),
+  activeRun: z.number().int().min(0).max(MAX_RUNS).default(0),
+  feedback: z.enum(["up", "down"]).optional(),
+  docs: z.array(docRefSchema).max(50).default([]),
+  runs: z.array(runSchema).min(1).max(MAX_RUNS),
+});
+
+export const chatPayloadSchema = z.object({
+  title: z.string().trim().min(1).max(MAX_TITLE),
+  /** Preserved from the browser so imported conversations keep their order. */
+  createdAt: z.number().int().positive().optional(),
+  scopeDocs: z.array(docRefSchema).max(50).default([]),
+  turns: z.array(turnSchema).max(MAX_TURNS),
+});
+
+export type ChatPayload = z.infer<typeof chatPayloadSchema>;
+
+/** The id exists, but belongs to another tenant or author. */
+export class ChatConflictError extends Error {
+  constructor() {
+    super("That chat id is already in use.");
+    this.name = "ChatConflictError";
+  }
+}
+
+/** Recents only needs the header; `turns` stays empty on purpose. */
+export async function listChats(
+  tenantId: string,
+  userId: string,
+  limit = 60,
+): Promise<StoredChat[]> {
+  const rows = await getDb()
+    .select({
+      id: chats.id,
+      title: chats.title,
+      scopeDocs: chats.scopeDocs,
+      createdAt: chats.createdAt,
+      updatedAt: chats.updatedAt,
+    })
+    .from(chats)
+    .where(and(eq(chats.tenantId, tenantId), eq(chats.createdBy, userId)))
+    .orderBy(desc(chats.updatedAt))
+    .limit(limit);
+
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    createdAt: row.createdAt.getTime(),
+    updatedAt: row.updatedAt.getTime(),
+    docIds: row.scopeDocs.map((doc) => doc.id),
+    docs: row.scopeDocs,
+    turns: [],
+  }));
+}
+
+export async function getChat(
+  tenantId: string,
+  userId: string,
+  chatId: string,
+): Promise<StoredChat | null> {
+  const row = await getDb().query.chats.findFirst({
+    where: and(
+      eq(chats.id, chatId),
+      eq(chats.tenantId, tenantId),
+      eq(chats.createdBy, userId),
+    ),
+    with: {
+      turns: {
+        orderBy: [asc(chatTurns.position)],
+        with: { runs: { orderBy: [asc(chatRuns.position)] } },
+      },
+    },
+  });
+
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    title: row.title,
+    createdAt: row.createdAt.getTime(),
+    updatedAt: row.updatedAt.getTime(),
+    docIds: row.scopeDocs.map((doc) => doc.id),
+    docs: row.scopeDocs,
+    turns: row.turns.map((turn) => ({
+      // Database ids are never shown to the browser; they only need to be
+      // stable for the duration of a load.
+      id: turn.id,
+      role: turn.role,
+      runs: turn.runs.map((run) => ({
+        blocks: run.blocks,
+        citations: run.citations as StoredCitation[],
+        tools: run.tools as StoredTool[],
+        ...(run.error ? { error: run.error } : {}),
+        ...(run.timings ? { timings: run.timings } : {}),
+        ...(run.questionRun !== null ? { questionRun: run.questionRun } : {}),
+      })),
+      activeRun: turn.activeRun,
+      ...(turn.feedback ? { feedback: turn.feedback } : {}),
+      docs: turn.docs,
+    })),
+  };
+}
+
+/**
+ * Upsert the whole conversation, replacing its turns and runs.
+ *
+ * The browser already owns the full shape (it streams into it), so a partial
+ * diff would cost more than it saves at these sizes. Deleting and re-inserting
+ * the children inside one `batch` — a single transaction on `neon-http` — keeps
+ * the write atomic without an interactive transaction.
+ */
+export async function saveChat(
+  tenantId: string,
+  userId: string,
+  chatId: string,
+  payload: ChatPayload,
+): Promise<void> {
+  const db = getDb();
+  const now = new Date();
+
+  const updated = await db
+    .update(chats)
+    .set({ title: payload.title, scopeDocs: payload.scopeDocs, updatedAt: now })
+    .where(and(eq(chats.id, chatId), eq(chats.tenantId, tenantId), eq(chats.createdBy, userId)))
+    .returning({ id: chats.id });
+
+  if (updated.length === 0) {
+    const inserted = await db
+      .insert(chats)
+      .values({
+        id: chatId,
+        tenantId,
+        createdBy: userId,
+        title: payload.title,
+        scopeDocs: payload.scopeDocs,
+        createdAt: payload.createdAt ? new Date(payload.createdAt) : now,
+        updatedAt: now,
+      })
+      // If the id is taken, this is a collision with another tenant's chat.
+      .onConflictDoNothing()
+      .returning({ id: chats.id });
+
+    if (inserted.length === 0) throw new ChatConflictError();
+  }
+
+  const turnRows = payload.turns.map((turn, index) => ({
+    id: crypto.randomUUID(),
+    chatId,
+    role: turn.role,
+    position: index,
+    activeRun: turn.activeRun,
+    feedback: turn.feedback ?? null,
+    docs: turn.docs as DocRef[],
+  }));
+
+  const runRows = payload.turns.flatMap((turn, index) =>
+    turn.runs.map((run, runIndex) => ({
+      turnId: turnRows[index]!.id,
+      position: runIndex,
+      blocks: run.blocks as Record<number, string>,
+      citations: run.citations as unknown as StoredCitation[],
+      tools: run.tools as unknown as StoredTool[],
+      error: run.error ?? null,
+      timings: run.timings ?? null,
+      questionRun: run.questionRun ?? null,
+    })),
+  );
+
+  type Statement = Parameters<typeof db.batch>[0][number];
+  const statements: Statement[] = [db.delete(chatTurns).where(eq(chatTurns.chatId, chatId))];
+  if (turnRows.length > 0) statements.push(db.insert(chatTurns).values(turnRows));
+  if (runRows.length > 0) statements.push(db.insert(chatRuns).values(runRows));
+
+  await db.batch(statements as [Statement, ...Statement[]]);
+}
+
+export async function renameChat(
+  tenantId: string,
+  userId: string,
+  chatId: string,
+  title: string,
+): Promise<boolean> {
+  const rows = await getDb()
+    .update(chats)
+    .set({ title, updatedAt: new Date() })
+    .where(and(eq(chats.id, chatId), eq(chats.tenantId, tenantId), eq(chats.createdBy, userId)))
+    .returning({ id: chats.id });
+
+  return rows.length > 0;
+}
+
+export async function deleteChat(
+  tenantId: string,
+  userId: string,
+  chatId: string,
+): Promise<boolean> {
+  const rows = await getDb()
+    .delete(chats)
+    .where(and(eq(chats.id, chatId), eq(chats.tenantId, tenantId), eq(chats.createdBy, userId)))
+    .returning({ id: chats.id });
+
+  return rows.length > 0;
+}
+
+export async function deleteAllChats(tenantId: string, userId: string): Promise<number> {
+  const rows = await getDb()
+    .delete(chats)
+    .where(and(eq(chats.tenantId, tenantId), eq(chats.createdBy, userId)))
+    .returning({ id: chats.id });
+
+  return rows.length;
+}

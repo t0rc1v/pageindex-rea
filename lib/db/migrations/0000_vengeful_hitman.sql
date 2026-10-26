@@ -13,7 +13,7 @@ CREATE TABLE "chat_runs" (
 --> statement-breakpoint
 CREATE TABLE "chat_turns" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"chat_id" uuid NOT NULL,
+	"chat_id" text NOT NULL,
 	"role" text NOT NULL,
 	"position" integer NOT NULL,
 	"active_run" integer DEFAULT 0 NOT NULL,
@@ -23,7 +23,7 @@ CREATE TABLE "chat_turns" (
 );
 --> statement-breakpoint
 CREATE TABLE "chats" (
-	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"id" text PRIMARY KEY NOT NULL,
 	"tenant_id" uuid NOT NULL,
 	"created_by" text NOT NULL,
 	"title" text NOT NULL,

@@ -5,9 +5,10 @@ import { Skeleton } from "@/components/ui-kit";
 import { ChatWorkspace } from "./chat-workspace";
 
 /**
- * Stored conversations come from localStorage, so this surface mounts only
- * after hydration — otherwise the server and client would render different
- * message lists.
+ * Stored conversations are fetched per browser session, so this surface mounts
+ * only after hydration — otherwise the server and client would render different
+ * message lists. `key` forces a fresh workspace per chat, which is what makes
+ * the "loading" state correct when navigating between conversations.
  */
 export function ChatPageClient({ chatId }: { chatId: string }) {
   const isClient = useIsClient();
@@ -22,5 +23,5 @@ export function ChatPageClient({ chatId }: { chatId: string }) {
     );
   }
 
-  return <ChatWorkspace chatId={chatId} />;
+  return <ChatWorkspace key={chatId} chatId={chatId} />;
 }

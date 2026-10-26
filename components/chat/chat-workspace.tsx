@@ -11,7 +11,7 @@ import { useFetch } from "@/lib/client/hooks";
 import type { DocumentListResponse } from "@/lib/pageindex/types";
 import { Markdown } from "@/components/markdown";
 import { Onboarding } from "@/components/onboarding";
-import { cn } from "@/components/ui-kit";
+import { Skeleton, cn } from "@/components/ui-kit";
 import { DocumentPanel, type OpenDoc } from "./document-panel";
 import { CitationCard, type CitationAnchor } from "./citation-card";
 import { DocPicker } from "./doc-picker";
@@ -198,7 +198,9 @@ export function ChatWorkspace({ chatId, initialDocs }: { chatId?: string; initia
       <div className="flex min-w-0 flex-1 flex-col">
         <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-3xl px-4 py-6">
-            {chat.turns.length === 0 ? (
+            {chat.loading ? (
+              <TranscriptSkeleton />
+            ) : chat.turns.length === 0 ? (
               library.data && library.data.total === 0 ? (
                 <Onboarding onUploaded={() => library.reload()} />
               ) : (
@@ -315,7 +317,13 @@ export function ChatWorkspace({ chatId, initialDocs }: { chatId?: string; initia
                   }
                 }}
                 rows={1}
-                placeholder={chat.busy ? "AI is thinking…" : "Ask a question…"}
+                placeholder={
+                  chat.loading
+                    ? "Opening conversation…"
+                    : chat.busy
+                      ? "AI is thinking…"
+                      : "Ask a question…"
+                }
                 className="block max-h-44 min-h-[95px] w-full resize-none bg-transparent px-3.5 pt-3 text-[13.5px] leading-relaxed text-ink outline-none placeholder:text-ink-muted/70"
               />
               <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-1">
@@ -362,7 +370,7 @@ export function ChatWorkspace({ chatId, initialDocs }: { chatId?: string; initia
                     <button
                       type="button"
                       onClick={() => submit(input)}
-                      disabled={!input.trim()}
+                      disabled={!input.trim() || chat.loading}
                       aria-label="Send message"
                       className="grid size-9 cursor-pointer place-items-center rounded-full bg-ink text-paper transition-opacity disabled:opacity-30"
                     >
@@ -631,6 +639,29 @@ function InlineEditor({
         >
           Save &amp; resend
         </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A stored conversation arrives over the network now, so `/chat/[id]` shows the
+ * shape of an answer (question line, paragraph, sources) while it loads rather
+ * than flashing the "ask your documents" empty state and then replacing it.
+ */
+function TranscriptSkeleton() {
+  return (
+    <div className="flex flex-col gap-6 pt-2" aria-busy="true" aria-label="Opening conversation">
+      <div className="flex flex-col gap-2">
+        <Skeleton className="h-3 w-24" />
+        <Skeleton className="h-4 w-2/3" />
+      </div>
+      <div className="flex flex-col gap-2">
+        <Skeleton className="h-3 w-28" />
+        <Skeleton className="h-3 w-full" />
+        <Skeleton className="h-3 w-11/12" />
+        <Skeleton className="h-3 w-9/12" />
+        <Skeleton className="mt-2 h-3 w-32" />
       </div>
     </div>
   );

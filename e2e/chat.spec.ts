@@ -212,4 +212,37 @@ test.describe("conversation surface", () => {
     await page.getByRole("button", { name: "Sans", exact: true }).click();
     await expect(page.locator("html")).toHaveAttribute("data-transcript", "sans");
   });
+
+  /**
+   * The one test that proves the Postgres round trip: everything else could pass
+   * on in-memory state alone. It waits for the PUT that settles the run, reloads
+   * the same URL, and expects the transcript to come back from `/api/chats/:id`.
+   */
+  test("a conversation survives a reload", async ({ page }) => {
+    await page.goto("/chat");
+
+    const saved = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        /^\/api\/chats\/[^/]+$/.test(new URL(response.url()).pathname),
+      { timeout: 60_000 },
+    );
+
+    await page.getByPlaceholder(/Ask a question/).fill("Summarize the key findings.");
+    await page.getByLabel("Send message").click();
+    await expect(page.getByLabel("Regenerate")).toBeVisible({ timeout: 30_000 });
+    await saved;
+
+    const chatUrl = new URL(page.url());
+    expect(chatUrl.pathname).toMatch(/^\/chat\/[0-9a-f-]{36}$/);
+
+    await page.reload();
+
+    // Scope to the transcript: earlier tests leave same-titled chats in Recents.
+    const transcript = page.getByRole("main");
+    await expect(transcript.getByText("Summarize the key findings.")).toBeVisible();
+    await expect(transcript.getByLabel("Regenerate")).toBeVisible({ timeout: 30_000 });
+    await transcript.getByRole("button", { name: /^Sources/ }).click();
+    await expect(page.getByText("Annual Report 2024.pdf").last()).toBeVisible();
+  });
 });

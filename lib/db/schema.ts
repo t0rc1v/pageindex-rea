@@ -90,7 +90,13 @@ export const documents = pgTable(
 export const chats = pgTable(
   "chats",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    /**
+     * Client-generated, not a database uuid: the browser must pick the id before
+     * the first save so it can put `/chat/<id>` in the address bar while the
+     * first answer streams, and the localStorage import has to keep the ids it
+     * already handed out.
+     */
+    id: text("id").primaryKey(),
     tenantId: uuid("tenant_id")
       .notNull()
       .references(() => tenants.id, { onDelete: "cascade" }),
@@ -111,7 +117,8 @@ export const chatTurns = pgTable(
   "chat_turns",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    chatId: uuid("chat_id")
+    /** Matches chats.id: client-generated text, not a uuid. */
+    chatId: text("chat_id")
       .notNull()
       .references(() => chats.id, { onDelete: "cascade" }),
     role: text("role", { enum: ["user", "assistant"] }).notNull(),
@@ -143,7 +150,12 @@ export const chatRuns = pgTable(
       .notNull()
       .references(() => chatTurns.id, { onDelete: "cascade" }),
     position: integer("position").notNull(),
-    blocks: jsonb("blocks").$type<Record<string, string>>().notNull().default({}),
+    /**
+     * Incrementally streamed text, keyed by block index. JSON keys are strings
+     * on the wire, but every caller indexes with the numeric block id, so the
+     * type says number and the runtime coercion does the rest.
+     */
+    blocks: jsonb("blocks").$type<Record<number, string>>().notNull().default({}),
     citations: jsonb("citations").$type<StoredCitation[]>().notNull().default([]),
     tools: jsonb("tools").$type<StoredTool[]>().notNull().default([]),
     error: text("error"),
