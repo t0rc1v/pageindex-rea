@@ -1,5 +1,6 @@
 import { submitDocument } from "@/lib/pageindex/client";
 import { registerUploadResult } from "@/lib/server/documents";
+import { folderBelongsToTenant } from "@/lib/server/folders";
 import { errorResponse, jsonResponse } from "@/lib/server/http";
 import { rateLimit, rateLimited } from "@/lib/server/rate-limit";
 import { requireTenant } from "@/lib/server/tenant";
@@ -137,9 +138,28 @@ export async function POST(request: Request) {
     form.set("if_add_node_text", "no");
     form.set("if_retrieval", "true");
 
-    const folderId = incoming.get("folder_id");
-    if (typeof folderId === "string" && folderId && folderId !== "all") {
-      form.set("folder_id", folderId);
+    // Folders are this workspace's, not PageIndex's: validate the id against the
+    // tenant and keep it here. Sending it upstream would place the document in a
+    // folder every other tenant can see.
+    const folderValue = incoming.get("folder_id");
+    let folderId: string | null = null;
+    if (
+      typeof folderValue === "string" &&
+      folderValue &&
+      folderValue !== "all" &&
+      folderValue !== "root"
+    ) {
+      if (!(await folderBelongsToTenant(tenantId, folderValue))) {
+        return jsonResponse(
+          {
+            error: "That folder does not exist in this workspace.",
+            code: "NOT_FOUND",
+            status: 404,
+          },
+          { status: 404 },
+        );
+      }
+      folderId = folderValue;
     }
 
     const metadata = incoming.get("metadata");
@@ -161,7 +181,7 @@ export async function POST(request: Request) {
     // later docId check pass. Failing here would leave an indexed file no tenant
     // can reach, so it is surfaced instead of swallowed.
     try {
-      await registerUploadResult(tenantId, userId, result);
+      await registerUploadResult(tenantId, userId, result, folderId);
     } catch (error) {
       console.error("registerUploadResult", error);
       return jsonResponse(

@@ -2,7 +2,7 @@ import { getDocument, openChatStream } from "@/lib/pageindex/client";
 import { encodeEvent, translateStream } from "@/lib/pageindex/chat-stream";
 import { hasLlmKey, openMcpChatStream } from "@/lib/pageindex/mcp-chat";
 import type { ChatMessage, ChatStreamEvent } from "@/lib/pageindex/types";
-import { listOwnedDocuments, ownedDocumentIds } from "@/lib/server/documents";
+import { listTenantDocuments, ownedDocumentIds } from "@/lib/server/documents";
 import { errorResponse, jsonResponse } from "@/lib/server/http";
 import { rateLimit, rateLimited } from "@/lib/server/rate-limit";
 import { requireTenant } from "@/lib/server/tenant";
@@ -160,8 +160,8 @@ export async function POST(request: Request) {
     // the client needs a name -> id index to make those citations openable.
     if (docIds.length === 0) {
       try {
-        const library = await listOwnedDocuments(tenantId, { limit: 100 });
-        docs = library.map((doc) => ({ id: doc.id, name: doc.name }));
+        const { rows } = await listTenantDocuments(tenantId, { limit: 100 });
+        docs = rows.map((row) => ({ id: row.pageindexId, name: row.name }));
       } catch {
         docs = [];
       }

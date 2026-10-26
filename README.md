@@ -135,7 +135,8 @@ exactly what tenancy must prevent.
 | --- | --- |
 | `tenants` | personal space or Clerk Organization |
 | `users` | Clerk user mirror; `tenant_id` is the personal tenant (unique) |
-| `documents` | ownership registry: `(tenant_id, pageindex_id)` unique |
+| `folders` | workspace folders — ours, never the account-global upstream ones |
+| `documents` | ownership registry: `(tenant_id, pageindex_id)` unique, plus folder, status and description |
 | `chats` | conversation header, scope documents, author |
 | `chat_turns` | one row per question/answer, ordered by `position` |
 | `chat_runs` | one row per regeneration; `blocks`/`citations`/`tools` as `jsonb` |
@@ -189,7 +190,7 @@ browser ──► Clerk session ──► Next.js Route Handlers ──► api.p
 | `GET /api/docs/[docId]/image?page=N` | `GET /doc/s3/{id}/images?start&end` | Presigned page JPEG. |
 | `GET /api/docs/[docId]/image/[imgId]` | `GET /doc/{id}/image/{img_id}/` | 302 to a presigned figure. |
 | `POST /api/upload` | `POST /doc/` | Multipart pass-through with indexing options. |
-| `GET/POST /api/folders` | `GET /folders/`, `POST /folder/` | |
+| `GET/POST /api/folders` | — | Workspace folders in Postgres (tenant-scoped). |
 | `POST /api/chat` | `POST /chat/completions/` | Normalizes the SSE: prose / tool args / citations / done. |
 
 ### The chat wire (worth reading before changing it)
@@ -372,6 +373,21 @@ Until it is configured the endpoint answers `503` rather than accepting unsigned
 payloads. Users are still mirrored lazily on their first request (one Backend API
 call, for the profile fields), so the app works without it — the webhook is what
 keeps deletions and renames honest.
+
+### Folders and listing
+
+Folders live in `folders`, scoped by tenant, because the upstream `/folders` API
+is account-global: proxying it would let one workspace see and mutate another's
+tree. Uploads therefore never send `folder_id` upstream — the id is validated
+against the tenant and stored on the `documents` row. A document's `path` in the
+UI is the workspace folder chain ("Legal / Contracts"), not the upstream one.
+
+The library is read from the registry, not from the upstream listing: ordering,
+paging and `total` are a Postgres query, so the list is honest at any size. Only
+*status* comes from upstream — the visible rows whose `synced_at` is stale are
+reconciled (at most five per request: 5s for in-flight indexing, 5min once
+settled), and the result is written back. Rows keep the last known status when
+upstream cannot be reached.
 
 ### Before deploying
 

@@ -3,11 +3,9 @@ import "server-only";
 import type {
   BlockResponse,
   DocumentListResponse,
-  FolderListResponse,
   OcrResponse,
   PageImageResponse,
   PageIndexDocument,
-  PageIndexFolder,
   TreeResponse,
 } from "./types";
 
@@ -207,31 +205,6 @@ export async function getPageImageUrl(
     `/doc/s3/${enc(docId)}/images?${search.toString()}`,
   );
   return body.images?.find((img) => img.page === page)?.url ?? null;
-}
-
-export async function listFolders(
-  parentFolderId?: string,
-): Promise<FolderListResponse> {
-  const search = new URLSearchParams();
-  if (parentFolderId) search.set("parent_folder_id", parentFolderId);
-  const suffix = search.size ? `?${search.toString()}` : "";
-  return callJson<FolderListResponse>(`/folders/${suffix}`);
-}
-
-export async function createFolder(input: {
-  name: string;
-  description?: string;
-  parentFolderId?: string;
-}): Promise<{ folder: PageIndexFolder }> {
-  return callJson<{ folder: PageIndexFolder }>("/folder/", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      name: input.name,
-      ...(input.description ? { description: input.description } : {}),
-      ...(input.parentFolderId ? { parent_folder_id: input.parentFolderId } : {}),
-    }),
-  });
 }
 
 /**

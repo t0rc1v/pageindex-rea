@@ -10,6 +10,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 
 import type { DocRef, StoredCitation, StoredTool, TurnTimings } from "@/lib/chat-types";
 
@@ -62,6 +63,32 @@ export const users = pgTable(
 );
 
 /**
+ * Workspace folders — ours, not PageIndex's.
+ *
+ * The upstream `/folders` API is account-global: a folder created by one tenant
+ * would be visible to (and mutable by) every other tenant. Folder organisation is
+ * therefore local metadata, and uploads no longer send a `folder_id` upstream.
+ */
+export const folders = pgTable(
+  "folders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    /** Nested folders are allowed by the model; the UI renders a flat list. */
+    parentId: uuid("parent_id").references((): AnyPgColumn => folders.id, {
+      onDelete: "cascade",
+    }),
+    name: text("name").notNull(),
+    description: text("description"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("folders_tenant_name_idx").on(t.tenantId, t.name)],
+);
+
+/**
  * Ownership registry for PageIndex documents.
  *
  * The upstream id is the one the BFF routes receive, so this table is what
@@ -77,7 +104,14 @@ export const documents = pgTable(
     /** Document id in the PageIndex account. */
     pageindexId: text("pageindex_id").notNull(),
     name: text("name").notNull(),
+    /** Workspace folder. Null means unfiled ("root"). */
+    folderId: uuid("folder_id").references(() => folders.id, { onDelete: "set null" }),
     pageCount: integer("page_count"),
+    description: text("description"),
+    /** Upstream lifecycle: `processing`, `completed`, … as the API reports it. */
+    status: text("status").notNull().default("completed"),
+    /** When the row was last reconciled with upstream, so listing can throttle. */
+    syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
     uploadedBy: text("uploaded_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -87,6 +121,7 @@ export const documents = pgTable(
     // Deleting asks "does any other tenant still reference this upstream id?",
     // which filters on the id alone and cannot use the composite above.
     index("documents_pageindex_idx").on(t.pageindexId),
+    index("documents_tenant_folder_idx").on(t.tenantId, t.folderId, t.createdAt.desc()),
     index("documents_tenant_name_idx").on(t.tenantId, t.name),
   ],
 );
@@ -191,6 +226,7 @@ export const rateLimits = pgTable(
 /** Lets `db.query.chats.findFirst({ with: { turns: { with: { runs: true } } } })` work. */
 export const tenantsRelations = relations(tenants, ({ many }) => ({
   users: many(users),
+  folders: many(folders),
   documents: many(documents),
   chats: many(chats),
 }));
@@ -202,8 +238,20 @@ export const usersRelations = relations(users, ({ one }) => ({
   }),
 }));
 
+export const foldersRelations = relations(folders, ({ one, many }) => ({
+  tenant: one(tenants, { fields: [folders.tenantId], references: [tenants.id] }),
+  parent: one(folders, {
+    fields: [folders.parentId],
+    references: [folders.id],
+    relationName: "folder_parent",
+  }),
+  children: many(folders, { relationName: "folder_parent" }),
+  documents: many(documents),
+}));
+
 export const documentsRelations = relations(documents, ({ one }) => ({
   tenant: one(tenants, { fields: [documents.tenantId], references: [tenants.id] }),
+  folder: one(folders, { fields: [documents.folderId], references: [folders.id] }),
   uploader: one(users, { fields: [documents.uploadedBy], references: [users.id] }),
 }));
 

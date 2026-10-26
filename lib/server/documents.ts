@@ -1,11 +1,11 @@
 import "server-only";
 
-import { and, eq, sql } from "drizzle-orm";
+import { and, count, desc, eq, isNull, sql } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
-import { listDocuments } from "@/lib/pageindex/client";
-import { jsonResponse } from "@/lib/server/http";
+import { getDocument } from "@/lib/pageindex/client";
 import { documents } from "@/lib/db/schema";
+import { jsonResponse } from "@/lib/server/http";
 
 /**
  * The ownership registry.
@@ -26,7 +26,13 @@ export interface OwnedDocument {
 export async function registerDocument(
   tenantId: string,
   userId: string,
-  doc: { pageindexId: string; name: string; pageCount?: number | null },
+  doc: {
+    pageindexId: string;
+    name: string;
+    pageCount?: number | null;
+    folderId?: string | null;
+    status?: string;
+  },
 ): Promise<void> {
   await getDb()
     .insert(documents)
@@ -36,6 +42,8 @@ export async function registerDocument(
       pageindexId: doc.pageindexId,
       name: doc.name,
       pageCount: doc.pageCount ?? null,
+      folderId: doc.folderId ?? null,
+      status: doc.status ?? "completed",
     })
     .onConflictDoUpdate({
       target: [documents.tenantId, documents.pageindexId],
@@ -56,6 +64,7 @@ export async function registerUploadResult(
     name?: string;
     entries?: Array<{ doc_id?: string; name?: string }>;
   },
+  folderId: string | null = null,
 ): Promise<void> {
   const targets: Array<{ pageindexId: string; name: string }> = [];
   if (result.doc_id) {
@@ -76,44 +85,165 @@ export async function registerUploadResult(
         uploadedBy: userId,
         pageindexId: target.pageindexId,
         name: target.name,
+        folderId,
+        // Indexing is asynchronous upstream; the first listing reconciles it.
+        status: "processing",
       })),
     )
     .onConflictDoUpdate({
       target: [documents.tenantId, documents.pageindexId],
       // Multi-row upsert: each conflicting row updates from its own EXCLUDED.
-      set: { name: sql`excluded.name`, updatedAt: new Date() },
+      set: {
+        name: sql`excluded.name`,
+        folderId: sql`excluded.folder_id`,
+        updatedAt: new Date(),
+      },
     });
 }
 
+export interface RegistryDocument {
+  pageindexId: string;
+  name: string;
+  folderId: string | null;
+  pageCount: number | null;
+  description: string | null;
+  status: string;
+  syncedAt: Date;
+  createdAt: Date;
+}
+
 /**
- * Upstream listing reduced to what this tenant owns.
+ * List one page of this tenant's documents from the registry.
  *
- * The Cloud API has no "give me these ids" filter, so the scan is bounded and
- * the result is filtered here. Callers that need real pagination over a large
- * account should page the registry instead; this is the bridge that keeps
- * upstream status/description/folder fields available today.
+ * The library used to be built by fetching the upstream list and filtering it,
+ * which cannot paginate honestly (the filter runs after the page) and silently
+ * hides everything past the scan limit. The registry is the authoritative set,
+ * so ordering, paging and counting all happen in Postgres.
  */
-export async function listOwnedDocuments(
+export async function listTenantDocuments(
   tenantId: string,
   options: {
-    limit?: number;
+    /** A folder id, `"root"` for unfiled, or null for everything. */
     folderId?: string | null;
     name?: string;
-    recursive?: boolean;
+    limit?: number;
+    offset?: number;
   } = {},
-) {
-  const [owned, result] = await Promise.all([
-    ownedDocumentIds(tenantId),
-    listDocuments({
-      limit: options.limit ?? 500,
-      offset: 0,
-      folderId: options.folderId ?? null,
-      name: options.name,
-      recursive: options.recursive,
-    }),
+): Promise<{ rows: RegistryDocument[]; total: number }> {
+  const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
+  const offset = Math.max(options.offset ?? 0, 0);
+
+  const filters = [eq(documents.tenantId, tenantId)];
+  if (options.folderId === "root") filters.push(isNull(documents.folderId));
+  else if (options.folderId) filters.push(eq(documents.folderId, options.folderId));
+  if (options.name) filters.push(eq(documents.name, options.name));
+
+  const where = and(...filters);
+  const db = getDb();
+
+  const [rows, [totalRow]] = await Promise.all([
+    db
+      .select({
+        pageindexId: documents.pageindexId,
+        name: documents.name,
+        folderId: documents.folderId,
+        pageCount: documents.pageCount,
+        description: documents.description,
+        status: documents.status,
+        syncedAt: documents.syncedAt,
+        createdAt: documents.createdAt,
+      })
+      .from(documents)
+      .where(where)
+      .orderBy(desc(documents.createdAt))
+      .limit(limit)
+      .offset(offset),
+    db.select({ value: count() }).from(documents).where(where),
   ]);
 
-  return result.documents.filter((document) => owned.has(document.id));
+  return { rows, total: Number(totalRow?.value ?? 0) };
+}
+
+/** How many rows one listing is allowed to reconcile with upstream. */
+const MAX_REFRESH_PER_LIST = 5;
+/** Recently changed rows are polled quickly; settled ones rarely. */
+const PENDING_FRESH_MS = 5_000;
+const SETTLED_FRESH_MS = 5 * 60_000;
+
+/**
+ * Reconcile the visible rows with upstream status.
+ *
+ * The registry owns identity and organisation, but indexing progress lives
+ * upstream. Refreshing only the rows that are stale *and* on screen keeps this
+ * O(visible), not O(library) — and rows are mutated in place so the caller
+ * returns what it just learned without a second read.
+ */
+export async function refreshDocuments(
+  tenantId: string,
+  rows: RegistryDocument[],
+): Promise<void> {
+  const now = Date.now();
+  const due = rows
+    .filter((row) => {
+      const age = now - row.syncedAt.getTime();
+      return age > (row.status === "completed" ? SETTLED_FRESH_MS : PENDING_FRESH_MS);
+    })
+    .slice(0, MAX_REFRESH_PER_LIST);
+
+  if (due.length === 0) return;
+
+  await Promise.allSettled(
+    due.map(async (row) => {
+      try {
+        const upstream = await getDocument(row.pageindexId);
+
+        row.status = String(upstream.status ?? row.status);
+        if (typeof upstream.pageNum === "number") row.pageCount = upstream.pageNum;
+        if (typeof upstream.description === "string" || upstream.description === null) {
+          row.description = upstream.description ?? null;
+        }
+        row.syncedAt = new Date();
+
+        await getDb()
+          .update(documents)
+          .set({
+            status: row.status,
+            pageCount: row.pageCount,
+            description: row.description,
+            syncedAt: row.syncedAt,
+          })
+          .where(
+            and(eq(documents.tenantId, tenantId), eq(documents.pageindexId, row.pageindexId)),
+          );
+      } catch {
+        // A flapping or deleted upstream document keeps its last known state, but
+        // the timestamp moves so every listing does not retry it.
+        row.syncedAt = new Date();
+        await getDb()
+          .update(documents)
+          .set({ syncedAt: row.syncedAt })
+          .where(
+            and(eq(documents.tenantId, tenantId), eq(documents.pageindexId, row.pageindexId)),
+          )
+          .catch(() => {});
+      }
+    }),
+  );
+}
+
+/** The shape `DocumentListResponse` already promises the browser. */
+export function toDocumentResponse(row: RegistryDocument, folderPaths: Map<string, string>) {
+  return {
+    id: row.pageindexId,
+    name: row.name,
+    description: row.description,
+    status: row.status,
+    createdAt: row.createdAt.toISOString(),
+    pageNum: row.pageCount ?? undefined,
+    folderId: row.folderId,
+    path: row.folderId ? folderPaths.get(row.folderId) ?? null : null,
+    metadata: null,
+  };
 }
 
 /** The ids this tenant owns — used to filter an upstream listing down to them. */

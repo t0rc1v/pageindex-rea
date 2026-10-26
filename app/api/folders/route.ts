@@ -1,50 +1,61 @@
-import { auth } from "@clerk/nextjs/server";
+import { z } from "zod";
 
-import { createFolder, listFolders } from "@/lib/pageindex/client";
-import { errorResponse, jsonResponse, searchParams } from "@/lib/server/http";
+import { createFolder, listFolders, toFolderResponse } from "@/lib/server/folders";
+import { errorResponse, jsonResponse } from "@/lib/server/http";
+import { requireTenant } from "@/lib/server/tenant";
 
-/** GET /api/folders — workspaces ("folders") in the PageIndex account. */
-export async function GET(request: Request) {
-  await auth.protect();
+/**
+ * Workspace folders for the calling tenant.
+ *
+ * Deliberately local: the upstream `/folders` API is account-global, so proxying
+ * it would let one workspace see and mutate another's folder tree.
+ */
+
+/** GET /api/folders — flat list with per-folder document counts. */
+export async function GET() {
+  const { tenantId } = await requireTenant();
 
   try {
-    const parent = searchParams(request).get("parent");
-    return jsonResponse(await listFolders(parent ?? undefined));
+    const folders = await listFolders(tenantId);
+    return jsonResponse({ folders: folders.map(toFolderResponse), total: folders.length });
   } catch (error) {
     return errorResponse(error);
   }
 }
 
-/** POST /api/folders — create a folder. */
+const createSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  description: z.string().max(1000).nullish(),
+  parentFolderId: z.uuid().nullish(),
+});
+
+/** POST /api/folders — create one, optionally nested. */
 export async function POST(request: Request) {
-  await auth.protect();
+  const { tenantId } = await requireTenant();
 
   try {
-    const body = (await request.json()) as {
-      name?: unknown;
-      description?: unknown;
-      parentFolderId?: unknown;
-    };
-    const name = typeof body.name === "string" ? body.name.trim() : "";
-    if (!name) {
+    const parsed = createSchema.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) {
       return jsonResponse(
         { error: "A folder name is required.", code: "INTERNAL", status: 400 },
         { status: 400 },
       );
     }
-    return jsonResponse(
-      await createFolder({
-        name,
-        description:
-          typeof body.description === "string" && body.description.trim()
-            ? body.description.trim()
-            : undefined,
-        parentFolderId:
-          typeof body.parentFolderId === "string" && body.parentFolderId
-            ? body.parentFolderId
-            : undefined,
-      }),
-    );
+
+    const folder = await createFolder(tenantId, {
+      name: parsed.data.name,
+      description: parsed.data.description ?? null,
+      parentFolderId: parsed.data.parentFolderId ?? null,
+    });
+
+    if (!folder) {
+      return jsonResponse(
+        { error: "That parent folder does not exist.", code: "NOT_FOUND", status: 404 },
+        { status: 404 },
+      );
+    }
+
+    return jsonResponse(toFolderResponse(folder));
   } catch (error) {
     return errorResponse(error);
   }
