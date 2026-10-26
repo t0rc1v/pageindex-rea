@@ -1,3 +1,4 @@
+import { auth } from "@clerk/nextjs/server";
 import { Suspense } from "react";
 
 import { DocView } from "@/components/doc-view";
@@ -5,7 +6,9 @@ import { Skeleton } from "@/components/ui-kit";
 
 export const metadata = { title: "Reader — PageIndex Reader" };
 
-export default function DocPage({ params }: PageProps<"/doc/[docId]">) {
+export default async function DocPage({ params }: PageProps<"/doc/[docId]">) {
+  await auth.protect();
+
   return (
     <Suspense fallback={<ReaderSkeleton />}>
       {params.then(({ docId }) => (

@@ -1,3 +1,5 @@
+import { auth } from "@clerk/nextjs/server";
+
 import { getPages } from "@/lib/pageindex/client";
 import { errorResponse, intParam, jsonResponse, searchParams } from "@/lib/server/http";
 import { forgetPages, readPages, writePages } from "@/lib/server/pages-cache";
@@ -13,6 +15,8 @@ export async function GET(
   request: Request,
   ctx: RouteContext<"/api/docs/[docId]/pages">,
 ) {
+  await auth.protect();
+
   try {
     const { docId } = await ctx.params;
     const params = searchParams(request);

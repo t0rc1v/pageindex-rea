@@ -1,3 +1,5 @@
+import { auth } from "@clerk/nextjs/server";
+
 import { submitDocument } from "@/lib/pageindex/client";
 import { errorResponse, jsonResponse } from "@/lib/server/http";
 
@@ -74,6 +76,8 @@ function extensionOf(name: string): string {
  * the library polls status until it reaches `completed`.
  */
 export async function POST(request: Request) {
+  await auth.protect();
+
   try {
     const incoming = await request.formData();
     const file = incoming.get("file");

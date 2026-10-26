@@ -1,3 +1,5 @@
+import { auth } from "@clerk/nextjs/server";
+
 import { deleteDocument, getDocument, updateDocumentMetadata } from "@/lib/pageindex/client";
 import { errorResponse, jsonResponse } from "@/lib/server/http";
 
@@ -6,6 +8,8 @@ export async function GET(
   _request: Request,
   ctx: RouteContext<"/api/docs/[docId]">,
 ) {
+  await auth.protect();
+
   try {
     const { docId } = await ctx.params;
     return jsonResponse(await getDocument(docId));
@@ -19,6 +23,8 @@ export async function PATCH(
   request: Request,
   ctx: RouteContext<"/api/docs/[docId]">,
 ) {
+  await auth.protect();
+
   try {
     const { docId } = await ctx.params;
     const body = (await request.json()) as { name?: unknown; description?: unknown };
@@ -45,6 +51,8 @@ export async function DELETE(
   _request: Request,
   ctx: RouteContext<"/api/docs/[docId]">,
 ) {
+  await auth.protect();
+
   try {
     const { docId } = await ctx.params;
     await deleteDocument(docId);

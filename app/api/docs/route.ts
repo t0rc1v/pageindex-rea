@@ -1,8 +1,12 @@
+import { auth } from "@clerk/nextjs/server";
+
 import { listDocuments } from "@/lib/pageindex/client";
 import { errorResponse, intParam, jsonResponse, searchParams } from "@/lib/server/http";
 
 /** GET /api/docs — paginated document list, optional folder / exact-name filter. */
 export async function GET(request: Request) {
+  await auth.protect();
+
   try {
     const params = searchParams(request);
     const folderId = params.get("folderId");

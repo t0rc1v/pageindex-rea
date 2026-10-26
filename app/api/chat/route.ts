@@ -1,3 +1,5 @@
+import { auth } from "@clerk/nextjs/server";
+
 import { getDocument, listDocuments, openChatStream } from "@/lib/pageindex/client";
 import { encodeEvent, translateStream } from "@/lib/pageindex/chat-stream";
 import { hasLlmKey, openMcpChatStream } from "@/lib/pageindex/mcp-chat";
@@ -114,6 +116,8 @@ function parseDocs(value: unknown): Array<{ id: string; name: string }> {
  * the UI can separate prose, tool activity and citations.
  */
 export async function POST(request: Request) {
+  await auth.protect();
+
   try {
     const body = (await request.json()) as ChatRequestBody;
     const history = parseMessages(body.messages);

@@ -1,5 +1,6 @@
 "use client";
 
+import { UserButton } from "@clerk/nextjs";
 import {
   ChevronDown,
   ExternalLink,
@@ -174,6 +175,15 @@ export function AppSidebar() {
         </div>
 
         <SidebarMenu>
+          <SidebarMenuItem>
+            {/* The signed-in control: avatar opens Manage account / Sign out. */}
+            <div className="flex items-center gap-2 rounded-md px-2 py-1.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
+              <UserButton />
+              <span className="min-w-0 flex-1 truncate text-[13px] group-data-[collapsible=icon]:hidden">
+                Account
+              </span>
+            </div>
+          </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton
               tooltip="Settings"

@@ -1,3 +1,5 @@
+import { auth } from "@clerk/nextjs/server";
+
 import { getPageImageUrl } from "@/lib/pageindex/client";
 import { errorResponse, intParam, jsonResponse, searchParams } from "@/lib/server/http";
 
@@ -12,6 +14,8 @@ export async function GET(
   request: Request,
   ctx: RouteContext<"/api/docs/[docId]/image">,
 ) {
+  await auth.protect();
+
   try {
     const { docId } = await ctx.params;
     const page = intParam(searchParams(request).get("page"), 1, 1, 100_000);

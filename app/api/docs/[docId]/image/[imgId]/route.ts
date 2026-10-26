@@ -1,3 +1,5 @@
+import { auth } from "@clerk/nextjs/server";
+
 import { getDocumentImageUrl } from "@/lib/pageindex/client";
 import { errorResponse } from "@/lib/server/http";
 
@@ -12,6 +14,8 @@ export async function GET(
   _request: Request,
   ctx: RouteContext<"/api/docs/[docId]/image/[imgId]">,
 ) {
+  await auth.protect();
+
   try {
     const { docId, imgId } = await ctx.params;
     const url = await getDocumentImageUrl(docId, decodeURIComponent(imgId));

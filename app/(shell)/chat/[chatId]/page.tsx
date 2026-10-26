@@ -1,3 +1,4 @@
+import { auth } from "@clerk/nextjs/server";
 import { Suspense } from "react";
 
 import { ChatPageClient } from "@/components/chat/chat-page-client";
@@ -5,7 +6,9 @@ import { Skeleton } from "@/components/ui-kit";
 
 export const metadata = { title: "Chat — PageIndex Reader" };
 
-export default function ChatPage({ params }: PageProps<"/chat/[chatId]">) {
+export default async function ChatPage({ params }: PageProps<"/chat/[chatId]">) {
+  await auth.protect();
+
   return (
     <Suspense fallback={<ChatFallback />}>
       {params.then(({ chatId }) => (

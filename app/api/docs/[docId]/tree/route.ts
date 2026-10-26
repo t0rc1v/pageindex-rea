@@ -1,3 +1,5 @@
+import { auth } from "@clerk/nextjs/server";
+
 import { getTree } from "@/lib/pageindex/client";
 import { errorResponse, jsonResponse, searchParams } from "@/lib/server/http";
 
@@ -10,6 +12,8 @@ export async function GET(
   request: Request,
   ctx: RouteContext<"/api/docs/[docId]/tree">,
 ) {
+  await auth.protect();
+
   try {
     const { docId } = await ctx.params;
     const params = searchParams(request);

@@ -1,3 +1,4 @@
+import { auth } from "@clerk/nextjs/server";
 import { Suspense } from "react";
 
 import { NewChatRoute } from "@/components/chat/new-chat-route";
@@ -5,7 +6,9 @@ import { Spinner } from "@/components/ui-kit";
 
 export const metadata = { title: "New chat — PageIndex Reader" };
 
-export default function NewChatPage() {
+export default async function NewChatPage() {
+  await auth.protect();
+
   return (
     <Suspense
       fallback={

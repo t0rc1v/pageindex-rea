@@ -1,3 +1,5 @@
+import { auth } from "@clerk/nextjs/server";
+
 import { getBlock } from "@/lib/pageindex/client";
 import { errorResponse, jsonResponse } from "@/lib/server/http";
 
@@ -13,6 +15,8 @@ export async function GET(
   _request: Request,
   ctx: RouteContext<"/api/docs/[docId]/block/[blockId]">,
 ) {
+  await auth.protect();
+
   try {
     const { docId, blockId } = await ctx.params;
     return jsonResponse(await getBlock(docId, blockId));

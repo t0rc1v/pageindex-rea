@@ -1,3 +1,5 @@
+import { ClerkProvider } from "@clerk/nextjs";
+import { shadcn } from "@clerk/ui/themes";
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Source_Serif_4 } from "next/font/google";
 
@@ -46,9 +48,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       suppressHydrationWarning
     >
       <body className="flex h-dvh flex-col overflow-hidden bg-paper text-ink">
-        <AppProviders>
-          <ConfirmProvider>{children}</ConfirmProvider>
-        </AppProviders>
+        <ClerkProvider appearance={{ theme: shadcn }}>
+          <AppProviders>
+            <ConfirmProvider>{children}</ConfirmProvider>
+          </AppProviders>
+        </ClerkProvider>
       </body>
     </html>
   );

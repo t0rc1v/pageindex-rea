@@ -1,8 +1,12 @@
+import { auth } from "@clerk/nextjs/server";
+
 import { createFolder, listFolders } from "@/lib/pageindex/client";
 import { errorResponse, jsonResponse, searchParams } from "@/lib/server/http";
 
 /** GET /api/folders — workspaces ("folders") in the PageIndex account. */
 export async function GET(request: Request) {
+  await auth.protect();
+
   try {
     const parent = searchParams(request).get("parent");
     return jsonResponse(await listFolders(parent ?? undefined));
@@ -13,6 +17,8 @@ export async function GET(request: Request) {
 
 /** POST /api/folders — create a folder. */
 export async function POST(request: Request) {
+  await auth.protect();
+
   try {
     const body = (await request.json()) as {
       name?: unknown;

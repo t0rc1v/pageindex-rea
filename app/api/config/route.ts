@@ -1,3 +1,4 @@
+import { auth } from "@clerk/nextjs/server";
 import { connection } from "next/server";
 
 import { PAGEINDEX_API_URL, hasApiKey } from "@/lib/pageindex/client";
@@ -12,6 +13,7 @@ import { errorResponse, jsonResponse } from "@/lib/server/http";
  * env, which must never be baked into a prerendered response.
  */
 export async function GET() {
+  await auth.protect();
   await connection();
 
   try {

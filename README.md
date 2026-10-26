@@ -61,11 +61,16 @@ library.
 
 ```bash
 pnpm install
-cp .env.example .env.local   # paste your key
-pnpm dev                     # http://localhost:3000 → /chat
+cp .env.example .env.local   # paste your PageIndex key
+pnpm dev                     # http://localhost:3000 → sign in → /chat
 ```
 
-Get a key at [dash.pageindex.ai](https://dash.pageindex.ai).
+Get a PageIndex key at [dash.pageindex.ai](https://dash.pageindex.ai).
+
+Clerk keys come from `npx clerk init` (or `npx clerk env pull` once the project is
+linked); they are already in `.env.local` for this checkout. Every route below
+`/chat`, `/library`, `/doc`, `/settings` and every `/api/*` handler requires a
+session — pages gate with `await auth.protect()`, handlers likewise.
 
 ### Configuration
 
@@ -77,24 +82,34 @@ Get a key at [dash.pageindex.ai](https://dash.pageindex.ai).
 | `OPENAI_API_KEY` | no | — | Enables the **MCP lane** (recommended). Requires `PAGEINDEX_API_KEY`. |
 | `OPENAI_MODEL` | no | `gpt-4o-mini` | Model that drives the MCP tools. |
 | `PAGEINDEX_MCP_URL` | no | `$PAGEINDEX_API_URL/mcp` | Override the MCP endpoint. |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | yes | — | Clerk publishable key; safe to ship to the browser. |
+| `CLERK_SECRET_KEY` | yes | — | Clerk secret key. Server-only. |
+
+Organizations are enabled with **Membership optional** (personal accounts on), so
+a user can read documents solo and create a team later; `orgId` is the tenancy
+key the Neon schema will be scoped by.
 
 ---
 
 ## Routes
 
 ```
+/sign-in              Clerk sign-in (catch-all)
+/sign-up              Clerk sign-up (catch-all)
 /chat                 new conversation (optionally ?docs=id,id)
 /chat/[chatId]        stored conversation (localStorage)
 /library              documents + folders
 /doc/[docId]          reader (tree + pages + page image)
 /settings             connection, local data, chat lane notes
+
+/api/me               session probe: { userId, orgId, orgRole, orgSlug }
 ```
 
 ## Architecture
 
 ```
-browser ──► Next.js Route Handlers ──► api.pageindex.ai
-            (api_key header, server)      (BFF: key never ships)
+browser ──► Clerk session ──► Next.js Route Handlers ──► api.pageindex.ai
+            (proxy.ts)      (api_key header, server)      (BFF: key never ships)
 ```
 
 | Browser call | Upstream | Notes |
