@@ -184,7 +184,22 @@ pnpm test:e2e    # playwright against the mock API, using your installed Chrome
 ```
 
 The e2e suite starts the mock and a production server on port 3100 itself; it
-needs no API key and no browser download.
+needs no PageIndex key and no browser download.
+
+It does need a Clerk user, because every route is gated. The `setup` project
+signs one in once and writes `e2e/.auth/user.json` (gitignored) for the specs to
+reuse, so tests never walk through a sign-in form:
+
+```bash
+clerk users create --email pageindex-e2e+clerk_test@example.com \
+  --password "$(openssl rand -hex 10)Aa1" --yes      # once per development instance
+pnpm test:e2e                                       # E2E_CLERK_USER_EMAIL overrides the default
+```
+
+`playwright.config.ts` loads `.env.local` through `@next/env` (the loader Next
+uses) so `clerkSetup()` sees `CLERK_SECRET_KEY`; `clerk.signIn({ emailAddress })`
+then mints a sign-in token over the Backend API and spends it as a ticket — no
+password, no emailed code, nothing that bot protection can rate-limit.
 
 ---
 

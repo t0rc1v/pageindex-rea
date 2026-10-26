@@ -1,9 +1,24 @@
+import { loadEnvConfig } from "@next/env";
 import { defineConfig, devices } from "@playwright/test";
+
+/**
+ * Playwright starts a separate process, so it does not see the env Next loads
+ * from `.env.local` on its own. `@next/env` is the loader Next itself uses —
+ * same precedence, same variable expansion — and `clerkSetup()` needs
+ * `CLERK_SECRET_KEY` / `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` before any test runs.
+ */
+loadEnvConfig(process.cwd());
+
+const AUTH_STATE = "e2e/.auth/user.json";
 
 /**
  * E2E runs against the offline mock API (`pnpm mock:api`), so it needs no key
  * and no network. It reuses the installed Chrome (`channel: "chrome"`) instead
  * of downloading a browser.
+ *
+ * The `setup` project signs a test user in once and writes `storageState`; the
+ * `chrome` project depends on it and starts already authenticated. That is why
+ * the specs can `page.goto("/chat")` straight into a gated route.
  */
 export default defineConfig({
   testDir: "./e2e",
@@ -16,7 +31,21 @@ export default defineConfig({
     baseURL: "http://127.0.0.1:3100",
     trace: "retain-on-failure",
   },
-  projects: [{ name: "chrome", use: { ...devices["Desktop Chrome"], channel: "chrome" } }],
+  projects: [
+    {
+      name: "setup",
+      testMatch: /global\.setup\.ts/,
+      // Same system Chrome as the specs: the setup project launches a browser
+      // too, and the bundled Chromium was never downloaded by design.
+      use: { ...devices["Desktop Chrome"], channel: "chrome" },
+    },
+    {
+      name: "chrome",
+      use: { ...devices["Desktop Chrome"], channel: "chrome", storageState: AUTH_STATE },
+      dependencies: ["setup"],
+      testIgnore: /global\.setup\.ts/,
+    },
+  ],
   webServer: [
     {
       command: "node scripts/mock-pageindex-api.mjs 4319",
