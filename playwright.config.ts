@@ -56,7 +56,11 @@ export default defineConfig({
     {
       command: "npx next start -p 3100",
       url: "http://127.0.0.1:3100/chat",
-      reuseExistingServer: true,
+      // Never reuse: a server left over from a previous run serves the *old*
+      // `.next` output, and if the build was replaced underneath it the app
+      // answers with HTML error pages instead of failing loudly. Start fresh
+      // from the current build every time.
+      reuseExistingServer: false,
       timeout: 120_000,
       env: {
         PAGEINDEX_API_URL: "http://127.0.0.1:4319",
