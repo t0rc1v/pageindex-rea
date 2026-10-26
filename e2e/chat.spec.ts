@@ -1,4 +1,6 @@
-import { expect, test, type Locator } from "@playwright/test";
+import { type Locator } from "@playwright/test";
+
+import { expect, test } from "./fixtures";
 
 test.describe("conversation surface", () => {
   test("answers a question with tool steps, citations and sources", async ({ page }) => {

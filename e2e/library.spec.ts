@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 /**
  * Folders and the library listing are workspace data now, not PageIndex data.
@@ -131,4 +131,25 @@ test.describe("renaming", () => {
       expect(restored.ok(), await restored.text()).toBeTruthy();
     }
   });
+});
+
+/**
+ * The policy is enforced, not just advertised: `e2e/fixtures.ts` fails any test
+ * whose page reports a CSP violation, and this pins the directives that matter.
+ */
+test("serves a content security policy", async ({ page }) => {
+  const response = await page.request.get("/chat");
+  expect(response.ok()).toBeTruthy();
+
+  const csp = response.headers()["content-security-policy"];
+  expect(csp, "missing Content-Security-Policy header").toBeTruthy();
+
+  expect(csp).toContain("default-src 'self'");
+  expect(csp).toContain("object-src 'none'");
+  expect(csp).toContain("base-uri 'self'");
+  expect(csp).toContain("frame-ancestors 'none'");
+  // Presigned page renders are only reachable if the bucket host is allowed.
+  expect(csp).toContain("https://*.amazonaws.com");
+  // The production build must not need eval.
+  expect(csp).not.toContain("'unsafe-eval'");
 });

@@ -344,7 +344,7 @@ account is shared and the upstream has no notion of tenants.
 | Input validation | zod on chat payloads; chat ids must be UUIDs; 2 MB body cap on `PUT /api/chats/:id`; 50 MB upload cap with content sniffing |
 | Abuse | Fixed-window limits in Postgres (see below) — not in process memory, so N instances do not mean N× the limit |
 | Webhooks | `POST /api/webhooks/clerk` verifies the Svix signature and is excluded from the session middleware; without a secret it answers 503 |
-| Response headers | `nosniff`, `DENY` framing, strict referrer, permissions policy, HSTS, same-origin opener |
+| Response headers | `nosniff`, `DENY` framing, strict referrer, permissions policy, HSTS, same-origin opener, and a Content Security Policy (below) |
 | Secrets | Only server modules read `CLERK_SECRET_KEY`, `DATABASE_URL`, `PAGEINDEX_API_KEY`; `server-only` makes a client import a build error |
 
 | Endpoint | Limit |
@@ -429,9 +429,34 @@ upstream cannot be reached.
   keep `next dev` pointing at a branch you do not mind losing.
 - Connect a log sink: unhandled route errors are logged server-side and returned
   to the caller as a generic 500, so the log is the only place the cause appears.
-- A CSP is **not** configured: Clerk's Frontend API origin is instance-specific,
-  and a wrong `script-src` breaks sign-in with no useful error. `clerkMiddleware`
-  accepts a `contentSecurityPolicy` option when that is worth doing deliberately.
+
+### Content Security Policy
+
+`proxy.ts` sets a CSP on every matched response. It is **not** nonce-based, and
+that is a deliberate trade recorded here because the alternative looks tempting:
+
+a nonce can only be attached while a page is rendered per request. This app runs
+on Cache Components, so routes are partial prerenders whose static shell is built
+with no request and therefore no nonce. Clerk's `contentSecurityPolicy` helper
+generates one and adds `'strict-dynamic'` — enabling it blocked every Next chunk
+in this app, because a browser ignores `'unsafe-inline'` once a nonce is present.
+The real choice is a strict nonce policy **or** partial prerendering, not both.
+
+Enforced today: scripts come from our own bundle and Clerk's Frontend API (derived
+from the publishable key, so it follows the instance); `object-src`, `base-uri`
+and framing are shut; `connect-src` is the app plus Clerk; `img-src` is presigned
+S3 renders, Clerk avatars and blobs. Inline scripts stay allowed — the tradeoff
+to be explicit about. React escapes by default, the single
+`dangerouslySetInnerHTML` renders mermaid with `securityLevel: "strict"`, and an
+injected script would still find nowhere to send what it stole.
+
+`e2e/fixtures.ts` fails any test whose page logs a CSP violation, so the policy
+cannot quietly break a surface: images, diagrams, sign-in and exports are all
+covered by the suite.
+
+If you later want a nonce policy, the honest path is making the authenticated
+routes dynamic (`await connection()` in the shell) and accepting the loss of the
+static shell — not loosening the policy until it passes.
 
 ### Known limits
 
