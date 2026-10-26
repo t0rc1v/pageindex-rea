@@ -84,10 +84,49 @@ session — pages gate with `await auth.protect()`, handlers likewise.
 | `PAGEINDEX_MCP_URL` | no | `$PAGEINDEX_API_URL/mcp` | Override the MCP endpoint. |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | yes | — | Clerk publishable key; safe to ship to the browser. |
 | `CLERK_SECRET_KEY` | yes | — | Clerk secret key. Server-only. |
+| `DATABASE_URL` | yes | — | Neon **pooled** connection string; used by the app at runtime. |
+| `DATABASE_URL_UNPOOLED` | for migrations | — | Neon **direct** connection string; `drizzle-kit` only. |
 
 Organizations are enabled with **Membership optional** (personal accounts on), so
 a user can read documents solo and create a team later; `orgId` is the tenancy
-key the Neon schema will be scoped by.
+key the Neon schema is scoped by.
+
+---
+
+## Database
+
+The PageIndex key is **account-wide** — every document lives in one upstream
+account, so PageIndex itself cannot answer "is this document yours?". Ownership
+lives in Postgres instead, and a **tenant** is the boundary:
+
+- the session's Clerk Organization, when `orgId` is present;
+- otherwise the caller's personal tenant, created on first request.
+
+`tenant_id` is never null. A personal space is a real row in `tenants` with a
+null `clerk_org_id`, so personal and team scopes run one query shape instead of
+an `isNull(orgId)` branch in every handler. `lib/server/tenant.ts` is the only
+place a request becomes a tenant.
+
+| Table | Holds |
+| --- | --- |
+| `tenants` | personal space or Clerk Organization |
+| `users` | Clerk user mirror; `tenant_id` is the personal tenant (unique) |
+| `documents` | ownership registry: `(tenant_id, pageindex_id)` unique |
+| `chats` | conversation header, scope documents, author |
+| `chat_turns` | one row per question/answer, ordered by `position` |
+| `chat_runs` | one row per regeneration; `blocks`/`citations`/`tools` as `jsonb` |
+
+```bash
+pnpm db:generate   # schema.ts → SQL in lib/db/migrations
+pnpm db:migrate    # apply pending migrations (direct connection)
+pnpm db:studio     # browse the data
+pnpm db:push       # dev-only shortcut: sync schema without a migration file
+```
+
+Migrations go through `DATABASE_URL_UNPOOLED`. DDL through a transaction-mode
+pooler is where `drizzle-kit` fails first. The app uses `drizzle-orm/neon-http`
+(one request per query, nothing to pool), and `db.batch()` is what keeps
+multi-statement writes atomic, since that driver has no interactive transactions.
 
 ---
 
@@ -221,7 +260,12 @@ lib/
   citations.ts                 tag parsing, numbering, stream-safe tokenizing
   citation-placement.ts        where the citation preview sits (measured, clamped)
   chat-store.ts                conversations in localStorage
+  chat-types.ts                shapes shared by the browser store and Postgres
+  db/schema.ts                 tenants, users, documents, chats, turns, runs
+  db/migrations/               generated SQL, applied with db:migrate
+  server/tenant.ts             session → tenant (personal or organization)
   server/pages-cache.ts        bounded page-content cache
+drizzle.config.ts              drizzle-kit (loads .env.local via @next/env)
 docs/REVERSE-ENGINEERING.md    evidence, inferences, open questions
 scripts/mock-pageindex-api.mjs
 ```
@@ -230,9 +274,13 @@ scripts/mock-pageindex-api.mjs
 
 ## Limits and caveats
 
-- **Single-user, no auth.** The API key *is* the account. Do not deploy publicly
-  without sessions and rate limits.
-- **Conversations are local** to this browser; there is no Cloud API for them.
+- **One PageIndex account, many users.** Every user's documents land in the
+  same upstream account because there is a single API key. Tenancy is enforced
+  by this app — `documents` is the ownership registry — so the BFF must check
+  it on every document route; the upstream will serve any id it is given.
+- **Conversations are local** to this browser; the Neon layer exists but the
+  store has not been moved onto it yet, so Recents does not follow a user across
+  devices.
 - **No sharing or billing.** Chat/document share links, subscriptions, seats and
   team spaces are deliberately out of scope for this build.
 - **PDF fidelity.** The Cloud API exposes rendered page images, not the original
