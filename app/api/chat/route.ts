@@ -1,8 +1,9 @@
-import { getDocument, openChatStream } from "@/lib/pageindex/client";
+import { openChatStream } from "@/lib/pageindex/client";
+import { citationNameMap, displayDocumentName } from "@/lib/pageindex/doc-scope";
 import { encodeEvent, translateStream } from "@/lib/pageindex/chat-stream";
 import { hasLlmKey, openMcpChatStream } from "@/lib/pageindex/mcp-chat";
 import type { ChatMessage, ChatStreamEvent } from "@/lib/pageindex/types";
-import { listTenantDocuments, ownedDocumentIds } from "@/lib/server/documents";
+import { documentsByIds, listTenantDocuments, ownedDocumentIds } from "@/lib/server/documents";
 import { errorResponse, jsonResponse } from "@/lib/server/http";
 import { rateLimit, rateLimited } from "@/lib/server/rate-limit";
 import { requireTenant } from "@/lib/server/tenant";
@@ -14,7 +15,7 @@ const MAX_DOCS = 8;
 interface ChatRequestBody {
   messages?: unknown;
   docIds?: unknown;
-  docs?: unknown;
+
   folderId?: unknown;
   context?: unknown;
 }
@@ -97,18 +98,6 @@ function parseDocIds(value: unknown): string[] {
     .slice(0, MAX_DOCS);
 }
 
-function parseDocs(value: unknown): Array<{ id: string; name: string }> {
-  if (!Array.isArray(value)) return [];
-  const docs: Array<{ id: string; name: string }> = [];
-  for (const item of value) {
-    if (!item || typeof item !== "object") continue;
-    const id = (item as { id?: unknown }).id;
-    const name = (item as { name?: unknown }).name;
-    if (typeof id === "string" && typeof name === "string") docs.push({ id, name });
-  }
-  return docs;
-}
-
 /**
  * POST /api/chat — the reader's answer lane.
  *
@@ -154,31 +143,18 @@ export async function POST(request: Request) {
       );
     }
 
-    let docs = parseDocs(body.docs).filter((doc) => docIds.includes(doc.id));
+    // Names come from the registry, never from the request: `name` is the
+    // workspace's display name and `upstreamName` is what PageIndex answers to.
+    const rows =
+      docIds.length > 0
+        ? await documentsByIds(tenantId, docIds)
+        : (await listTenantDocuments(tenantId, { limit: 100 })).rows;
 
-    // With no explicit scope the model may cite anything this tenant owns, so
-    // the client needs a name -> id index to make those citations openable.
-    if (docIds.length === 0) {
-      try {
-        const { rows } = await listTenantDocuments(tenantId, { limit: 100 });
-        docs = rows.map((row) => ({ id: row.pageindexId, name: row.name }));
-      } catch {
-        docs = [];
-      }
-    }
-
-    if (docs.length === 0 && docIds.length > 0) {
-      docs = await Promise.all(
-        docIds.map(async (id) => {
-          try {
-            const doc = await getDocument(id);
-            return { id, name: doc.name };
-          } catch {
-            return { id, name: id };
-          }
-        }),
-      );
-    }
+    const docs = rows.map((row) => ({
+      id: row.pageindexId,
+      name: row.name,
+      upstreamName: row.upstreamName,
+    }));
 
     // Pinned pages are passed as a system preamble, not as user text, so they
     // never appear inside the conversation itself.
@@ -214,9 +190,17 @@ export async function POST(request: Request) {
     }
 
     const upstreamBody = upstream.body;
-    return streamResponse(translateStream(upstreamBody), docs, () => {
-      void upstreamBody.cancel().catch(() => {});
-    });
+    // PageIndex cites the name it knows. Translate it before the browser sees it,
+    // so a transcript never cites a name the library does not show.
+    const toDisplay = citationNameMap(docs);
+    return streamResponse(
+      translateStream(upstreamBody),
+      docs,
+      () => {
+        void upstreamBody.cancel().catch(() => {});
+      },
+      (name) => displayDocumentName(name, toDisplay),
+    );
   } catch (error) {
     return errorResponse(error);
   }
@@ -230,6 +214,7 @@ function streamResponse(
   events: AsyncIterable<ChatStreamEvent>,
   docs: Array<{ id: string; name: string }>,
   onCancel?: () => void,
+  resolveName?: (name: string) => string,
 ): Response {
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -244,7 +229,19 @@ function streamResponse(
       send({ type: "context", docs });
 
       try {
-        for await (const event of events) send(event);
+        for await (const event of events) {
+          send(
+            event.type === "citations" && resolveName
+              ? {
+                  ...event,
+                  citations: event.citations.map((citation) => ({
+                    ...citation,
+                    document: resolveName(citation.document),
+                  })),
+                }
+              : event,
+          );
+        }
       } catch (error) {
         send({
           type: "error",

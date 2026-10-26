@@ -97,10 +97,11 @@ if (dryRun) {
 let claimed = 0;
 for (const document of missing) {
   const inserted = await sql`
-    insert into documents (tenant_id, pageindex_id, name, page_count, uploaded_by)
+    insert into documents (tenant_id, pageindex_id, name, upstream_name, page_count, uploaded_by)
     values (
       ${tenantId},
       ${document.id},
+      ${document.name ?? document.id},
       ${document.name ?? document.id},
       ${typeof document.pageNum === "number" ? document.pageNum : null},
       ${resolvedUserId}

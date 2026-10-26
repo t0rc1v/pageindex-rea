@@ -103,7 +103,18 @@ export const documents = pgTable(
       .references(() => tenants.id, { onDelete: "cascade" }),
     /** Document id in the PageIndex account. */
     pageindexId: text("pageindex_id").notNull(),
+    /**
+     * What this workspace calls the document. User-editable, never written to
+     * PageIndex — the upstream name is an account-global key, so a rename there
+     * would change another tenant's citations and break their MCP tool calls.
+     */
     name: text("name").notNull(),
+    /**
+     * What PageIndex calls it. Read-only mirror: it is the argument its MCP tools
+     * take and the name its citations carry, both of which are translated to
+     * `name` before anything reaches the browser.
+     */
+    upstreamName: text("upstream_name").notNull(),
     /** Workspace folder. Null means unfiled ("root"). */
     folderId: uuid("folder_id").references(() => folders.id, { onDelete: "set null" }),
     pageCount: integer("page_count"),

@@ -67,3 +67,68 @@ test.describe("workspace folders", () => {
     expect(body.total).toBe(body.documents.length);
   });
 });
+
+/**
+ * Renaming is local. The display name is what the workspace sees everywhere —
+ * library, citations, sources — while PageIndex keeps the name it was uploaded
+ * with, because that name is shared with every other tenant.
+ */
+test.describe("renaming", () => {
+  const RENAMED = "Board Pack 2025.pdf";
+  const UPSTREAM = "Annual Report 2024.pdf";
+
+  test("stays local and reaches citations and sources", async ({ page }) => {
+    const patched = await page.request.patch("/api/docs/pi-mock-1", { data: { name: RENAMED } });
+    expect(patched.status(), await patched.text()).toBe(200);
+
+    try {
+      // The library shows the workspace's name…
+      const listed = await page.request.get("/api/docs?limit=200");
+      const library = (await listed.json()) as { documents: Array<{ name: string }> };
+      expect(library.documents.map((document) => document.name)).toContain(RENAMED);
+
+      // …while the upstream document is untouched. The mock requires the same
+      // api_key every other caller sends.
+      const upstream = await page.request.get("http://127.0.0.1:4319/docs/", {
+        headers: { api_key: "test-key" },
+      });
+      const upstreamBody = (await upstream.json()) as { documents: Array<{ name: string }> };
+      expect(upstreamBody.documents.map((document) => document.name)).toContain(UPSTREAM);
+
+      // The citations frame carries the display name, not the upstream one.
+      const stream = await page.request.post("/api/chat", {
+        data: {
+          messages: [{ role: "user", content: "Summarize the key findings." }],
+          docIds: ["pi-mock-1"],
+        },
+      });
+      const raw = await stream.text();
+      const citations = raw
+        .split("\n\n")
+        .map((frame) => frame.split("\n").find((line) => line.startsWith("data:")))
+        .filter((line): line is string => Boolean(line))
+        .map((line) => JSON.parse(line.slice(5)) as { type: string; citations?: Array<{ document: string }> })
+        .filter((event) => event.type === "citations")
+        .flatMap((event) => event.citations ?? [])
+        .map((citation) => citation.document);
+
+      expect(citations.length).toBeGreaterThan(0);
+      expect(citations).toContain(RENAMED);
+      expect(citations).not.toContain(UPSTREAM);
+
+      // And the transcript renders that name in Sources.
+      await page.goto("/chat");
+      await page.getByPlaceholder(/Ask a question/).fill("Summarize the key findings.");
+      await page.getByLabel("Send message").click();
+      const sources = page.getByRole("main").getByRole("button", { name: /^Sources/ });
+      await expect(sources).toBeVisible({ timeout: 30_000 });
+      await sources.click();
+      await expect(page.getByRole("main").getByText(RENAMED).first()).toBeVisible();
+    } finally {
+      const restored = await page.request.patch("/api/docs/pi-mock-1", {
+        data: { name: UPSTREAM },
+      });
+      expect(restored.ok(), await restored.text()).toBeTruthy();
+    }
+  });
+});

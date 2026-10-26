@@ -376,7 +376,6 @@ export function useChat(options: {
             body: JSON.stringify({
               messages: history,
               docIds: docsRef.current.map((doc) => doc.id),
-              docs: docsRef.current,
               context: contextRef.current.map((item) => ({
                 docId: item.docId,
                 docName: item.docName,

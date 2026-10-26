@@ -70,5 +70,11 @@ setup("sign in the test user", async ({ page }) => {
   });
   expect(uploaded.ok(), await uploaded.text()).toBeTruthy();
 
+  // The display name is workspace state and a rename test may have changed it;
+  // reset it so the chat specs assert on a known title.
+  await page.request.patch("/api/docs/pi-mock-1", {
+    data: { name: "Annual Report 2024.pdf" },
+  });
+
   await page.context().storageState({ path: STATE_PATH });
 });

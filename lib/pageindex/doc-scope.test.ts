@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   MCP_READ_TOOLS,
+  citationNameMap,
+  displayDocumentName,
   docNameArguments,
+  mapDocNameArguments,
   normalizeDocName,
   toolCallAllowed,
+  upstreamNameMap,
 } from "./doc-scope";
 
 /**
@@ -67,5 +71,50 @@ describe("MCP tool scope", () => {
     });
     // Tools without a document argument stay callable, but read no content.
     expect(toolCallAllowed({ folder_id: "f1" }, new Set())).toEqual({ allowed: true });
+  });
+});
+
+/**
+ * The display/upstream split crosses two edges: MCP tool arguments go display →
+ * upstream, managed-lane citations go upstream → display. Both are pure and
+ * pinned here so a rename can never silently break the other direction.
+ */
+describe("display and upstream names", () => {
+  const renamed = { name: "Board Pack 2025.pdf", upstreamName: "Annual Report 2024.pdf" };
+  const untouched = { name: "Policy.pdf", upstreamName: "Policy.pdf" };
+
+  it("maps only the documents whose names differ", () => {
+    expect([...upstreamNameMap([renamed, untouched]).entries()]).toEqual([
+      ["board pack 2025.pdf", "Annual Report 2024.pdf"],
+    ]);
+    expect([...citationNameMap([renamed, untouched]).entries()]).toEqual([
+      ["annual report 2024.pdf", "Board Pack 2025.pdf"],
+    ]);
+  });
+
+  it("translates MCP tool arguments to the upstream name", () => {
+    const map = upstreamNameMap([renamed]);
+    expect(mapDocNameArguments({ doc_name: "board pack 2025.pdf" }, map)).toEqual({
+      doc_name: "Annual Report 2024.pdf",
+    });
+    expect(mapDocNameArguments({ doc_names: ["Board Pack 2025.pdf"] }, map)).toEqual({
+      doc_names: ["Annual Report 2024.pdf"],
+    });
+  });
+
+  it("leaves unrelated arguments untouched", () => {
+    const map = upstreamNameMap([renamed]);
+    expect(mapDocNameArguments({ pages: "1-3", folder_id: "f1" }, map)).toEqual({
+      pages: "1-3",
+      folder_id: "f1",
+    });
+  });
+
+  it("translates managed-lane citations to the display name", () => {
+    const map = citationNameMap([renamed]);
+    expect(displayDocumentName("Annual Report 2024.pdf", map)).toBe("Board Pack 2025.pdf");
+    expect(displayDocumentName("ANNUAL REPORT 2024.PDF", map)).toBe("Board Pack 2025.pdf");
+    // A name nobody renamed passes through, including one we do not own.
+    expect(displayDocumentName("Other.pdf", map)).toBe("Other.pdf");
   });
 });

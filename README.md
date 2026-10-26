@@ -136,7 +136,7 @@ exactly what tenancy must prevent.
 | `tenants` | personal space or Clerk Organization |
 | `users` | Clerk user mirror; `tenant_id` is the personal tenant (unique) |
 | `folders` | workspace folders — ours, never the account-global upstream ones |
-| `documents` | ownership registry: `(tenant_id, pageindex_id)` unique, plus folder, status and description |
+| `documents` | ownership registry: `(tenant_id, pageindex_id)` unique, plus folder, status, description and the display/upstream name pair |
 | `chats` | conversation header, scope documents, author |
 | `chat_turns` | one row per question/answer, ordered by `position` |
 | `chat_runs` | one row per regeneration; `blocks`/`citations`/`tools` as `jsonb` |
@@ -374,6 +374,35 @@ payloads. Users are still mirrored lazily on their first request (one Backend AP
 call, for the profile fields), so the app works without it — the webhook is what
 keeps deletions and renames honest.
 
+### Renames
+
+A document carries two names, and only one of them is written by this workspace.
+
+| Column | Meaning | Written by |
+| --- | --- | --- |
+| `documents.name` | What the workspace calls it | the user (`PATCH /api/docs/:id`) |
+| `documents.upstream_name` | What PageIndex calls it | upload, claim, and the status refresh |
+
+The upstream name is an **account-global key**: it is what PageIndex's MCP tools
+accept (`get_document(doc_name=…)`) and what its citations carry. Renaming it
+would change another tenant's citations and break their tool calls, so a rename
+stays here, and the two names are reconciled at the two edges that need it:
+
+- **MCP tool calls** — the gate checks the display name against the tenant's list,
+  then `mapDocNameArguments` swaps in the upstream name immediately before the
+  call.
+- **Managed-lane citations** — PageIndex emits the upstream name; the stream
+  rewrites `citation.document` to the display name before it reaches the browser,
+  so citations, Sources and the library never disagree.
+
+A rename in the PageIndex dashboard is picked up by the next status refresh as a
+new `upstream_name`; the workspace's own name is never touched. Descriptions are
+local too: seeded from upstream the first time, then left alone once edited.
+
+One boundary: tool-step **arguments** are still whatever upstream returned, so an
+expanded step can show the upstream name. It is inspectable plumbing, not a claim
+the answer makes.
+
 ### Folders and listing
 
 Folders live in `folders`, scoped by tenant, because the upstream `/folders` API
@@ -406,10 +435,12 @@ upstream cannot be reached.
 
 ### Known limits
 
-- **Folders are account-global.** The upstream `/folders` API is shared by every
-  tenant, so a folder created by one workspace is visible to all and is not
-  modelled in Postgres. Documents inside are still filtered by the registry.
-- **Renames are global.** Renaming a document changes it upstream; the registry
-  follows, and any other tenant that claimed it sees the new name.
-- **Document listing scans upstream** (up to 500 rows) and filters locally,
-  because the Cloud API cannot filter by a set of ids.
+- **Tool-step arguments show upstream names.** Citations, Sources and the
+  library use the workspace's display name; an expanded tool step's raw I/O
+  still shows what PageIndex returned. It is inspectable plumbing, not a claim
+  the answer makes.
+- **Upstream folders are ignored.** Documents uploaded through the PageIndex
+  dashboard land unfiled here; this app's folders are its own.
+- **Status is eventually consistent.** Rows reconcile with upstream at most once
+  every 5s while indexing and once every 5min when settled, so a status change
+  can lag by that much. The library polls, so a fresh upload catches up quickly.

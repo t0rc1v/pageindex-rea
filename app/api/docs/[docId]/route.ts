@@ -1,9 +1,10 @@
-import { deleteDocument, getDocument, updateDocumentMetadata } from "@/lib/pageindex/client";
+import { deleteDocument, getDocument } from "@/lib/pageindex/client";
 import {
   countOtherOwners,
   findDocument,
   forgetDocument,
   renameDocument,
+  setDocumentDescription,
   setDocumentPageCount,
 } from "@/lib/server/documents";
 import { errorResponse, jsonResponse } from "@/lib/server/http";
@@ -40,7 +41,15 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/docs/[docId
   }
 }
 
-/** PATCH /api/docs/:docId — rename / edit the description. */
+/**
+ * PATCH /api/docs/:docId — rename / edit the description.
+ *
+ * Both are **local**. The upstream name is an account-global key: renaming it
+ * would change another tenant's citations and break their MCP tool calls, and a
+ * shared description is someone else's edit. PageIndex keeps its name; this
+ * workspace keeps the one the user chose, and the two are reconciled at the two
+ * edges that need it (MCP tool arguments and managed-lane citations).
+ */
 export async function PATCH(request: Request, ctx: RouteContext<"/api/docs/[docId]">) {
   const { tenantId } = await requireTenant();
 
@@ -55,18 +64,24 @@ export async function PATCH(request: Request, ctx: RouteContext<"/api/docs/[docI
         { status: 400 },
       );
     }
-    const updated = await updateDocumentMetadata(docId, {
-      ...(typeof body.name === "string" ? { name: body.name } : {}),
-      ...(body.description === null || typeof body.description === "string"
-        ? { description: body.description }
-        : {}),
-    });
 
-    if (typeof body.name === "string" && body.name.trim()) {
-      await renameDocument(tenantId, docId, body.name.trim());
+    const name = typeof body.name === "string" ? body.name.trim().slice(0, 300) : "";
+    if (name) await renameDocument(tenantId, docId, name);
+
+    if (body.description === null || typeof body.description === "string") {
+      await setDocumentDescription(
+        tenantId,
+        docId,
+        body.description === null ? null : body.description.slice(0, 2_000),
+      );
     }
 
-    return jsonResponse(updated);
+    const owned = await findDocument(tenantId, docId);
+    return jsonResponse({
+      id: docId,
+      name: owned?.name ?? name,
+      description: body.description === undefined ? undefined : body.description,
+    });
   } catch (error) {
     return errorResponse(error);
   }

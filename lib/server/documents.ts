@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, count, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
 import { getDocument } from "@/lib/pageindex/client";
@@ -19,7 +19,10 @@ import { jsonResponse } from "@/lib/server/http";
 
 export interface OwnedDocument {
   pageindexId: string;
+  /** Display name chosen by this workspace. */
   name: string;
+  /** What PageIndex calls it; MCP tools and citations use this. */
+  upstreamName: string;
   pageCount: number | null;
 }
 
@@ -28,7 +31,9 @@ export async function registerDocument(
   userId: string,
   doc: {
     pageindexId: string;
-    name: string;
+    /** Defaults to the upstream name the first time a document is registered. */
+    name?: string;
+    upstreamName: string;
     pageCount?: number | null;
     folderId?: string | null;
     status?: string;
@@ -40,14 +45,17 @@ export async function registerDocument(
       tenantId,
       uploadedBy: userId,
       pageindexId: doc.pageindexId,
-      name: doc.name,
+      name: doc.name ?? doc.upstreamName,
+      upstreamName: doc.upstreamName,
       pageCount: doc.pageCount ?? null,
       folderId: doc.folderId ?? null,
       status: doc.status ?? "completed",
     })
     .onConflictDoUpdate({
       target: [documents.tenantId, documents.pageindexId],
-      set: { name: doc.name, updatedAt: new Date() },
+      // The upstream name is authoritative and refreshed; the display name is
+      // the user's and must survive a re-registration.
+      set: { upstreamName: doc.upstreamName, updatedAt: new Date() },
     });
 }
 
@@ -85,6 +93,7 @@ export async function registerUploadResult(
         uploadedBy: userId,
         pageindexId: target.pageindexId,
         name: target.name,
+        upstreamName: target.name,
         folderId,
         // Indexing is asynchronous upstream; the first listing reconciles it.
         status: "processing",
@@ -94,7 +103,9 @@ export async function registerUploadResult(
       target: [documents.tenantId, documents.pageindexId],
       // Multi-row upsert: each conflicting row updates from its own EXCLUDED.
       set: {
-        name: sql`excluded.name`,
+        // A re-registration (claim run again, or the same upstream id) refreshes
+        // what upstream owns. `name` is the workspace's and stays as it is.
+        upstreamName: sql`excluded.upstream_name`,
         folderId: sql`excluded.folder_id`,
         updatedAt: new Date(),
       },
@@ -104,6 +115,7 @@ export async function registerUploadResult(
 export interface RegistryDocument {
   pageindexId: string;
   name: string;
+  upstreamName: string;
   folderId: string | null;
   pageCount: number | null;
   description: string | null;
@@ -146,6 +158,7 @@ export async function listTenantDocuments(
       .select({
         pageindexId: documents.pageindexId,
         name: documents.name,
+        upstreamName: documents.upstreamName,
         folderId: documents.folderId,
         pageCount: documents.pageCount,
         description: documents.description,
@@ -199,8 +212,15 @@ export async function refreshDocuments(
 
         row.status = String(upstream.status ?? row.status);
         if (typeof upstream.pageNum === "number") row.pageCount = upstream.pageNum;
-        if (typeof upstream.description === "string" || upstream.description === null) {
-          row.description = upstream.description ?? null;
+        if (typeof upstream.name === "string" && upstream.name) {
+          // Someone may have renamed it in the PageIndex dashboard; the mirror
+          // follows, while the workspace's own `name` is left alone.
+          row.upstreamName = upstream.name;
+        }
+        if (row.description === null && typeof upstream.description === "string") {
+          // Seed the description from upstream, but never overwrite one the user
+          // wrote — this column is displayed, not synced.
+          row.description = upstream.description;
         }
         row.syncedAt = new Date();
 
@@ -210,6 +230,7 @@ export async function refreshDocuments(
             status: row.status,
             pageCount: row.pageCount,
             description: row.description,
+            upstreamName: row.upstreamName,
             syncedAt: row.syncedAt,
           })
           .where(
@@ -267,7 +288,12 @@ export async function findDocument(
   pageindexId: string,
 ): Promise<OwnedDocument | null> {
   const [row] = await getDb()
-    .select({ pageindexId: documents.pageindexId, name: documents.name, pageCount: documents.pageCount })
+    .select({
+      pageindexId: documents.pageindexId,
+      name: documents.name,
+      upstreamName: documents.upstreamName,
+      pageCount: documents.pageCount,
+    })
     .from(documents)
     .where(and(eq(documents.tenantId, tenantId), eq(documents.pageindexId, pageindexId)))
     .limit(1);
@@ -325,4 +351,47 @@ export async function countOtherOwners(pageindexId: string, tenantId: string): P
     .where(eq(documents.pageindexId, pageindexId));
 
   return rows.filter((row) => row.tenantId !== tenantId).length;
+}
+
+/** Display description, stored locally so an upstream refresh cannot clobber it. */
+export async function setDocumentDescription(
+  tenantId: string,
+  pageindexId: string,
+  description: string | null,
+): Promise<void> {
+  await getDb()
+    .update(documents)
+    .set({ description, updatedAt: new Date() })
+    .where(and(eq(documents.tenantId, tenantId), eq(documents.pageindexId, pageindexId)));
+}
+
+/**
+ * Registry rows for a set of upstream ids, in the order they were asked for.
+ *
+ * The chat lane builds its document list here rather than trusting names from
+ * the browser: ids come from the client, names and the upstream mirror do not.
+ */
+export async function documentsByIds(
+  tenantId: string,
+  ids: string[],
+): Promise<RegistryDocument[]> {
+  if (ids.length === 0) return [];
+
+  const rows = await getDb()
+    .select({
+      pageindexId: documents.pageindexId,
+      name: documents.name,
+      upstreamName: documents.upstreamName,
+      folderId: documents.folderId,
+      pageCount: documents.pageCount,
+      description: documents.description,
+      status: documents.status,
+      syncedAt: documents.syncedAt,
+      createdAt: documents.createdAt,
+    })
+    .from(documents)
+    .where(and(eq(documents.tenantId, tenantId), inArray(documents.pageindexId, ids)));
+
+  const byId = new Map(rows.map((row) => [row.pageindexId, row]));
+  return ids.map((id) => byId.get(id)).filter((row): row is RegistryDocument => Boolean(row));
 }

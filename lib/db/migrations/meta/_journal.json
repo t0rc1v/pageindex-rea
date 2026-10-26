@@ -29,6 +29,13 @@
       "when": 1793053741944,
       "tag": "0003_loud_gravity",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793054290255,
+      "tag": "0004_slimy_zaladane",
+      "breakpoints": true
     }
   ]
 }

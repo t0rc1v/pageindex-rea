@@ -6,7 +6,13 @@ import { openai } from "@ai-sdk/openai";
 import { dynamicTool, jsonSchema, stepCountIs, streamText, type ToolSet } from "ai";
 
 import { PAGEINDEX_API_URL } from "./client";
-import { MCP_READ_TOOLS, normalizeDocName, toolCallAllowed } from "./doc-scope";
+import {
+  MCP_READ_TOOLS,
+  mapDocNameArguments,
+  normalizeDocName,
+  toolCallAllowed,
+  upstreamNameMap,
+} from "./doc-scope";
 import type { ChatMessage, ChatStreamEvent } from "./types";
 
 /**
@@ -101,7 +107,7 @@ function stringField(part: unknown, key: string): string | undefined {
 /** Open the MCP session, expose its read tools, and stream the agent's answer. */
 export async function* openMcpChatStream(input: {
   messages: ChatMessage[];
-  docs: Array<{ id: string; name: string }>;
+  docs: Array<{ id: string; name: string; upstreamName?: string }>;
   signal?: AbortSignal;
 }): AsyncGenerator<ChatStreamEvent> {
   const apiKey = process.env.PAGEINDEX_API_KEY?.trim();
@@ -130,6 +136,7 @@ export async function* openMcpChatStream(input: {
     const toolSet: ToolSet = {};
 
     const allowedDocs = new Set(input.docs.map((doc) => normalizeDocName(doc.name)));
+    const toUpstream = upstreamNameMap(input.docs);
 
     for (const tool of tools) {
       if (!MCP_READ_TOOLS.has(tool.name)) continue;
@@ -152,9 +159,11 @@ export async function* openMcpChatStream(input: {
             return `Refused: "${verdict.name}" is not part of this workspace.`;
           }
 
+          // The gate above compared display names; PageIndex only knows the
+          // upstream one, so translate immediately before the call.
           const result = await client.callTool({
             name: tool.name,
-            arguments: argumentsRecord,
+            arguments: mapDocNameArguments(argumentsRecord, toUpstream),
           });
           return mcpResultText(result);
         },
