@@ -4,6 +4,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -91,12 +92,11 @@ export const chats = pgTable(
   "chats",
   {
     /**
-     * Client-generated, not a database uuid: the browser must pick the id before
-     * the first save so it can put `/chat/<id>` in the address bar while the
-     * first answer streams, and the localStorage import has to keep the ids it
-     * already handed out.
+     * A UUID the browser generates itself (crypto.randomUUID) rather than one the
+     * database assigns: the id has to exist before the first save so `/chat/<id>`
+     * can be in the address bar while the first answer streams.
      */
-    id: text("id").primaryKey(),
+    id: uuid("id").primaryKey().defaultRandom(),
     tenantId: uuid("tenant_id")
       .notNull()
       .references(() => tenants.id, { onDelete: "cascade" }),
@@ -110,15 +110,15 @@ export const chats = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("chats_tenant_updated_idx").on(t.tenantId, t.updatedAt.desc())],
+  // Recents filters on both tenant and author, then orders by recency.
+  (t) => [index("chats_tenant_author_updated_idx").on(t.tenantId, t.createdBy, t.updatedAt.desc())],
 );
 
 export const chatTurns = pgTable(
   "chat_turns",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    /** Matches chats.id: client-generated text, not a uuid. */
-    chatId: text("chat_id")
+    chatId: uuid("chat_id")
       .notNull()
       .references(() => chats.id, { onDelete: "cascade" }),
     role: text("role", { enum: ["user", "assistant"] }).notNull(),
@@ -165,6 +165,24 @@ export const chatRuns = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("chat_runs_turn_position_idx").on(t.turnId, t.position)],
+);
+
+/**
+ * Fixed-window counters for the endpoints that cost real money upstream
+ * (upload, chat, chat writes).
+ *
+ * This lives in Postgres rather than process memory on purpose: a per-instance
+ * limiter silently multiplies every limit by the number of running instances,
+ * which is exactly the failure mode a rate limit exists to prevent.
+ */
+export const rateLimits = pgTable(
+  "rate_limits",
+  {
+    key: text("key").notNull(),
+    windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+    count: integer("count").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.key, t.windowStart] })],
 );
 
 /** Lets `db.query.chats.findFirst({ with: { turns: { with: { runs: true } } } })` work. */

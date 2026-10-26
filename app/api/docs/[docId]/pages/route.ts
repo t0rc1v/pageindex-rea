@@ -1,7 +1,7 @@
-import { auth } from "@clerk/nextjs/server";
-
 import { getPages } from "@/lib/pageindex/client";
 import { errorResponse, intParam, jsonResponse, searchParams } from "@/lib/server/http";
+import { documentNotFound, findDocument } from "@/lib/server/documents";
+import { requireTenant } from "@/lib/server/tenant";
 import { forgetPages, readPages, writePages } from "@/lib/server/pages-cache";
 
 /**
@@ -15,10 +15,11 @@ export async function GET(
   request: Request,
   ctx: RouteContext<"/api/docs/[docId]/pages">,
 ) {
-  await auth.protect();
+  const { tenantId } = await requireTenant();
 
   try {
     const { docId } = await ctx.params;
+    if (!(await findDocument(tenantId, docId))) return documentNotFound();
     const params = searchParams(request);
     const from = intParam(params.get("from"), 1, 1, 100_000);
     const to = Math.max(from, intParam(params.get("to"), from, 1, 100_000));

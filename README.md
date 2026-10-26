@@ -107,6 +107,30 @@ null `clerk_org_id`, so personal and team scopes run one query shape instead of
 an `isNull(orgId)` branch in every handler. `lib/server/tenant.ts` is the only
 place a request becomes a tenant.
 
+**Ownership is enforced, not implied.** The upstream will serve any id it is
+given, so every document route resolves the id through `lib/server/documents.ts`
+first, and a miss answers **404** — not 403, which would confirm that someone
+else's document lives at that id. Rows enter the registry only by an upload in
+that tenant (`POST /api/upload` registers what it created, including every file
+expanded from a `.zip`) or by running the claim script explicitly:
+
+```bash
+pnpm db:claim --email you@example.com --dry-run   # what would be attached
+pnpm db:claim --email you@example.com             # attach to that user's tenant
+```
+
+Documents uploaded before the registry existed are invisible until claimed.
+Deleting a document removes the upstream file only once **no other tenant** lists
+it, so "delete mine" cannot destroy a shared document.
+
+The chat lane is scoped the same way. `docIds` from the browser are intersected
+with the registry before anything reaches upstream, and the MCP lane (which talks
+to an account-wide endpoint) exposes only tools that address one document *by
+name*, then checks every name against the tenant's list. `browse_documents`,
+`search_documents`, `get_folder_structure` and `get_document_image` are withheld:
+whether or not they are destructive, they can enumerate the account, which is
+exactly what tenancy must prevent.
+
 | Table | Holds |
 | --- | --- |
 | `tenants` | personal space or Clerk Organization |
@@ -121,6 +145,7 @@ pnpm db:generate   # schema.ts → SQL in lib/db/migrations
 pnpm db:migrate    # apply pending migrations (direct connection)
 pnpm db:studio     # browse the data
 pnpm db:push       # dev-only shortcut: sync schema without a migration file
+pnpm db:claim      # attach pre-existing upstream documents to a tenant
 ```
 
 Migrations go through `DATABASE_URL_UNPOOLED`. DDL through a transaction-mode
@@ -300,3 +325,71 @@ scripts/mock-pageindex-api.mjs
 - **The official app's authenticated UI could not be observed** (no session in any
   local browser), so the citation card and artifact are built from the user's
   description plus the API's citation payload — see §6 of the notes.
+
+---
+
+## Security model
+
+Everything below is a boundary the app enforces itself, because the PageIndex
+account is shared and the upstream has no notion of tenants.
+
+| Concern | Where it is handled |
+| --- | --- |
+| Authentication | `clerkMiddleware()` in `proxy.ts` reads the session; every page and Route Handler calls `await auth.protect()` (per-resource, not path matching) |
+| Tenancy | `requireTenant()` → `tenantId = orgId ?? personal tenant`; every query filters on it |
+| Document ownership | `documents` registry, checked on every document route; a miss is a 404 |
+| Chat visibility | `tenant_id` **and** `created_by` on every chat query — transcripts are private to their author |
+| Chat carding | Client `PUT` upserts only inside its own tenant+author scope; a taken id answers 409 |
+| Input validation | zod on chat payloads; chat ids must be UUIDs; 2 MB body cap on `PUT /api/chats/:id`; 50 MB upload cap with content sniffing |
+| Abuse | Fixed-window limits in Postgres (see below) — not in process memory, so N instances do not mean N× the limit |
+| Webhooks | `POST /api/webhooks/clerk` verifies the Svix signature and is excluded from the session middleware; without a secret it answers 503 |
+| Response headers | `nosniff`, `DENY` framing, strict referrer, permissions policy, HSTS, same-origin opener |
+| Secrets | Only server modules read `CLERK_SECRET_KEY`, `DATABASE_URL`, `PAGEINDEX_API_KEY`; `server-only` makes a client import a build error |
+
+| Endpoint | Limit |
+| --- | --- |
+| `POST /api/chat` | 30 / minute / user |
+| `POST /api/upload` | 20 / hour / user |
+| `PUT`·`PATCH`·`DELETE /api/chats/:id` | 240 / minute / user |
+| `DELETE /api/chats` (clear all) | 10 / hour / user |
+
+Exceeding a limit answers `429` with `Retry-After`, `X-RateLimit-Limit` and
+`X-RateLimit-Remaining`. Counters live in `rate_limits`; expired windows are
+swept by the first request of each new window, so no cron is required.
+
+### Clerk webhooks
+
+The webhook keeps the `users` mirror current and makes account and organization
+deletion cascade (a deleted user takes their personal space and transcripts with
+them; a deleted organization takes its documents and conversations).
+
+1. Clerk Dashboard → **Webhooks** → **Add endpoint** → `https://<host>/api/webhooks/clerk`
+2. Subscribe to `user.created`, `user.updated`, `user.deleted`,
+   `organization.created`, `organization.updated`, `organization.deleted`
+3. Copy the signing secret into `CLERK_WEBHOOK_SIGNING_SECRET`
+
+Until it is configured the endpoint answers `503` rather than accepting unsigned
+payloads. Users are still mirrored lazily on their first request (one Backend API
+call, for the profile fields), so the app works without it — the webhook is what
+keeps deletions and renames honest.
+
+### Before deploying
+
+- Run `pnpm db:migrate` as a release step; migrations use the direct URL.
+- Use a Neon role that owns only this database, and keep the pooled URL for the
+  app and the direct one for the migration job.
+- Claim anything uploaded before the registry existed.
+- Configure the Clerk webhook and confirm `CLERK_WEBHOOK_SIGNING_SECRET` is set.
+- A CSP is **not** configured: Clerk's Frontend API origin is instance-specific,
+  and a wrong `script-src` breaks sign-in with no useful error. `clerkMiddleware`
+  accepts a `contentSecurityPolicy` option when that is worth doing deliberately.
+
+### Known limits
+
+- **Folders are account-global.** The upstream `/folders` API is shared by every
+  tenant, so a folder created by one workspace is visible to all and is not
+  modelled in Postgres. Documents inside are still filtered by the registry.
+- **Renames are global.** Renaming a document changes it upstream; the registry
+  follows, and any other tenant that claimed it sees the new name.
+- **Document listing scans upstream** (up to 500 rows) and filters locally,
+  because the Cloud API cannot filter by a set of ids.

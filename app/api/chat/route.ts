@@ -1,10 +1,11 @@
-import { auth } from "@clerk/nextjs/server";
-
-import { getDocument, listDocuments, openChatStream } from "@/lib/pageindex/client";
+import { getDocument, openChatStream } from "@/lib/pageindex/client";
 import { encodeEvent, translateStream } from "@/lib/pageindex/chat-stream";
 import { hasLlmKey, openMcpChatStream } from "@/lib/pageindex/mcp-chat";
 import type { ChatMessage, ChatStreamEvent } from "@/lib/pageindex/types";
+import { listOwnedDocuments, ownedDocumentIds } from "@/lib/server/documents";
 import { errorResponse, jsonResponse } from "@/lib/server/http";
+import { rateLimit, rateLimited } from "@/lib/server/rate-limit";
+import { requireTenant } from "@/lib/server/tenant";
 
 const MAX_MESSAGES = 24;
 const MAX_CHARS = 120_000;
@@ -116,7 +117,11 @@ function parseDocs(value: unknown): Array<{ id: string; name: string }> {
  * the UI can separate prose, tool activity and citations.
  */
 export async function POST(request: Request) {
-  await auth.protect();
+  const { tenantId, userId } = await requireTenant();
+
+  // Streaming completions are the most expensive thing this app does.
+  const verdict = await rateLimit(`chat:${userId}`, 30, 60);
+  if (!verdict.allowed) return rateLimited(verdict);
 
   try {
     const body = (await request.json()) as ChatRequestBody;
@@ -132,15 +137,31 @@ export async function POST(request: Request) {
       );
     }
 
-    const docIds = parseDocIds(body.docIds);
+    const requested = parseDocIds(body.docIds);
+    // The upstream will answer about any document id it is given, including
+    // another tenant's. Scope the request to the registry before it goes out.
+    const owned = await ownedDocumentIds(tenantId);
+    const docIds = requested.filter((id) => owned.has(id));
+
+    if (requested.length > 0 && docIds.length === 0) {
+      return jsonResponse(
+        {
+          error: "None of the selected documents are available in this workspace.",
+          code: "NOT_FOUND",
+          status: 404,
+        },
+        { status: 404 },
+      );
+    }
+
     let docs = parseDocs(body.docs).filter((doc) => docIds.includes(doc.id));
 
-    // With no explicit scope the model may cite anything in the library, so the
-    // client needs a name -> id index to make those citations openable.
+    // With no explicit scope the model may cite anything this tenant owns, so
+    // the client needs a name -> id index to make those citations openable.
     if (docIds.length === 0) {
       try {
-        const library = await listDocuments({ limit: 100 });
-        docs = library.documents.map((doc) => ({ id: doc.id, name: doc.name }));
+        const library = await listOwnedDocuments(tenantId, { limit: 100 });
+        docs = library.map((doc) => ({ id: doc.id, name: doc.name }));
       } catch {
         docs = [];
       }
@@ -159,10 +180,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const folderId = typeof body.folderId === "string" ? body.folderId : undefined;
-
-    // Pages the reader pinned are passed as a system preamble, not as user text,
-    // so they never appear inside the conversation itself.
+    // Pinned pages are passed as a system preamble, not as user text, so they
+    // never appear inside the conversation itself.
     const pinned = parseContext(body.context);
     const messages = pinned.length > 0 ? [contextMessage(pinned), ...history] : history;
 
@@ -184,7 +203,6 @@ export async function POST(request: Request) {
       enable_citations: true,
       ...(docIds.length === 1 ? { doc_id: docIds[0] } : {}),
       ...(docIds.length > 1 ? { doc_id: docIds } : {}),
-      ...(folderId && docIds.length === 0 ? { folder_id: folderId } : {}),
     };
 
     const upstream = await openChatStream(payload);

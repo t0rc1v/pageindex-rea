@@ -246,3 +246,48 @@ test.describe("conversation surface", () => {
     await expect(page.getByText("Annual Report 2024.pdf").last()).toBeVisible();
   });
 });
+
+/**
+ * Ownership, not existence.
+ *
+ * The PageIndex account is shared by every tenant, and the mock serves a second
+ * document (`Acquisition Memo.pdf`) that this workspace never claimed. "The
+ * upstream will return it" must not be enough to read it.
+ */
+test.describe("document ownership", () => {
+  test("the library lists only documents this workspace registered", async ({ page }) => {
+    const response = await page.request.get("/api/docs?limit=50");
+    expect(response.ok()).toBeTruthy();
+
+    const body = (await response.json()) as { documents: Array<{ id: string; name: string }> };
+    const names = body.documents.map((document) => document.name);
+    expect(names).toContain("Annual Report 2024.pdf");
+    expect(names).not.toContain("Acquisition Memo.pdf");
+  });
+
+  test("an unregistered document id is not readable", async ({ page }) => {
+    for (const path of [
+      "/api/docs/pi-mock-2",
+      "/api/docs/pi-mock-2/tree",
+      "/api/docs/pi-mock-2/pages?from=1&to=1",
+      "/api/docs/pi-mock-2/image?page=1",
+      "/api/docs/pi-mock-2/block/p1_text_2",
+    ]) {
+      const response = await page.request.get(path);
+      expect(response.status(), path).toBe(404);
+    }
+  });
+
+  test("a chat cannot be scoped to a document the workspace does not own", async ({ page }) => {
+    const response = await page.request.post("/api/chat", {
+      data: {
+        messages: [{ role: "user", content: "What does the memo say?" }],
+        docIds: ["pi-mock-2"],
+      },
+    });
+
+    expect(response.status()).toBe(404);
+    const body = (await response.json()) as { error?: string };
+    expect(body.error).toMatch(/available in this workspace/i);
+  });
+});

@@ -1,7 +1,8 @@
-import { auth } from "@clerk/nextjs/server";
-
 import { submitDocument } from "@/lib/pageindex/client";
+import { registerUploadResult } from "@/lib/server/documents";
 import { errorResponse, jsonResponse } from "@/lib/server/http";
+import { rateLimit, rateLimited } from "@/lib/server/rate-limit";
+import { requireTenant } from "@/lib/server/tenant";
 
 const MAX_BYTES = 50 * 1024 * 1024;
 
@@ -76,7 +77,11 @@ function extensionOf(name: string): string {
  * the library polls status until it reaches `completed`.
  */
 export async function POST(request: Request) {
-  await auth.protect();
+  const { tenantId, userId } = await requireTenant();
+
+  // A 50 MB upload plus upstream indexing is the costliest call in the app.
+  const verdict = await rateLimit(`upload:${userId}`, 20, 3600);
+  if (!verdict.allowed) return rateLimited(verdict);
 
   try {
     const incoming = await request.formData();
@@ -150,7 +155,27 @@ export async function POST(request: Request) {
       form.set("beta_headers", JSON.stringify(betaHeaders));
     }
 
-    return jsonResponse(await submitDocument(form));
+    const result = await submitDocument(form);
+
+    // The registry row is what makes the document visible, and what makes every
+    // later docId check pass. Failing here would leave an indexed file no tenant
+    // can reach, so it is surfaced instead of swallowed.
+    try {
+      await registerUploadResult(tenantId, userId, result);
+    } catch (error) {
+      console.error("registerUploadResult", error);
+      return jsonResponse(
+        {
+          error:
+            "The file was indexed but could not be registered to this workspace. Run `pnpm db:claim` to attach it.",
+          code: "INTERNAL",
+          status: 500,
+        },
+        { status: 500 },
+      );
+    }
+
+    return jsonResponse(result);
   } catch (error) {
     return errorResponse(error);
   }

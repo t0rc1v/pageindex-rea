@@ -35,6 +35,7 @@ export type {
 const LEGACY_KEY = "pageindex-reader/chats/v1";
 const MIGRATED_KEY = "pageindex-reader/chats/migrated-to-neon-v1";
 const MAX_CHATS = 60;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 let cache: StoredChat[] = [];
 let hydrated = false;
@@ -281,7 +282,10 @@ function normalizeLegacyChat(raw: unknown): StoredChat | null {
   const now = Date.now();
 
   return {
-    id: chat.id,
+    // Older builds minted ids like `c_mvmwj8zj_mxlkb`; the column is a uuid now,
+    // so those chats are re-keyed on import. Transcripts survive; old
+    // `/chat/c_…` links are the only casualty.
+    id: UUID.test(chat.id) ? chat.id : crypto.randomUUID(),
     title: typeof chat.title === "string" && chat.title.trim() ? chat.title : "New chat",
     createdAt: typeof chat.createdAt === "number" ? chat.createdAt : now,
     updatedAt: typeof chat.updatedAt === "number" ? chat.updatedAt : now,

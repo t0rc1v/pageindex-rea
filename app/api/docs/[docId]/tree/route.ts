@@ -1,7 +1,7 @@
-import { auth } from "@clerk/nextjs/server";
-
 import { getTree } from "@/lib/pageindex/client";
 import { errorResponse, jsonResponse, searchParams } from "@/lib/server/http";
+import { documentNotFound, findDocument } from "@/lib/server/documents";
+import { requireTenant } from "@/lib/server/tenant";
 
 /**
  * GET /api/docs/:docId/tree
@@ -12,10 +12,11 @@ export async function GET(
   request: Request,
   ctx: RouteContext<"/api/docs/[docId]/tree">,
 ) {
-  await auth.protect();
+  const { tenantId } = await requireTenant();
 
   try {
     const { docId } = await ctx.params;
+    if (!(await findDocument(tenantId, docId))) return documentNotFound();
     const params = searchParams(request);
     return jsonResponse(
       await getTree(docId, {

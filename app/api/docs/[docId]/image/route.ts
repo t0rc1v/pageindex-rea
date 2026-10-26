@@ -1,7 +1,7 @@
-import { auth } from "@clerk/nextjs/server";
-
 import { getPageImageUrl } from "@/lib/pageindex/client";
 import { errorResponse, intParam, jsonResponse, searchParams } from "@/lib/server/http";
+import { documentNotFound, findDocument } from "@/lib/server/documents";
+import { requireTenant } from "@/lib/server/tenant";
 
 /**
  * GET /api/docs/:docId/image?page=3
@@ -14,10 +14,11 @@ export async function GET(
   request: Request,
   ctx: RouteContext<"/api/docs/[docId]/image">,
 ) {
-  await auth.protect();
+  const { tenantId } = await requireTenant();
 
   try {
     const { docId } = await ctx.params;
+    if (!(await findDocument(tenantId, docId))) return documentNotFound();
     const page = intParam(searchParams(request).get("page"), 1, 1, 100_000);
     const url = await getPageImageUrl(docId, page);
     if (!url) {

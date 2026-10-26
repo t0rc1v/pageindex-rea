@@ -1,7 +1,7 @@
-import { auth } from "@clerk/nextjs/server";
-
 import { getBlock } from "@/lib/pageindex/client";
 import { errorResponse, jsonResponse } from "@/lib/server/http";
+import { documentNotFound, findDocument } from "@/lib/server/documents";
+import { requireTenant } from "@/lib/server/tenant";
 
 /**
  * GET /api/docs/:docId/block/:blockId
@@ -15,10 +15,11 @@ export async function GET(
   _request: Request,
   ctx: RouteContext<"/api/docs/[docId]/block/[blockId]">,
 ) {
-  await auth.protect();
+  const { tenantId } = await requireTenant();
 
   try {
     const { docId, blockId } = await ctx.params;
+    if (!(await findDocument(tenantId, docId))) return documentNotFound();
     return jsonResponse(await getBlock(docId, blockId));
   } catch (error) {
     return errorResponse(error);

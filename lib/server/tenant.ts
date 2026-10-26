@@ -35,39 +35,38 @@ export async function requireTenant(): Promise<TenantContext> {
 /**
  * Resolve — or lazily create — the tenant a session writes into.
  *
- * Lazy creation exists so a user can read a document before any webhook has
- * been delivered, and so a freshly created Organization works on its first
- * request. Both paths are race-safe: the loser of a concurrent insert reads the
- * winner's row instead of duplicating one.
+ * Lazy creation means a user can read before any webhook has been delivered and
+ * a fresh Organization works on its first request. Both paths are race-safe: the
+ * loser of a concurrent insert reads the winner's row instead of duplicating it.
+ *
+ * The webhook path (`lib/server/clerk-sync.ts`) prefers these same helpers so
+ * there is exactly one way a tenant comes into existence.
  */
-async function resolveTenantId(userId: string, orgId: string | null | undefined): Promise<string> {
+export async function resolveTenantId(
+  userId: string,
+  orgId: string | null | undefined,
+): Promise<string> {
+  if (orgId) return ensureOrganizationTenant(orgId);
+  return ensurePersonalTenant(userId);
+}
+
+/** The caller's personal space, created on first use. */
+export async function ensurePersonalTenant(userId: string): Promise<string> {
   const db = getDb();
-
-  if (orgId) {
-    const existing = await findOrgTenant(orgId);
-    if (existing) return existing;
-
-    const inserted = await db
-      .insert(tenants)
-      .values({ clerkOrgId: orgId, name: await organizationName(orgId) })
-      .onConflictDoNothing()
-      .returning({ id: tenants.id });
-
-    const raced = inserted[0]?.id ?? (await findOrgTenant(orgId));
-    if (!raced) throw new Error(`Could not resolve a tenant for organization ${orgId}.`);
-    return raced;
-  }
 
   const existing = await findPersonalTenant(userId);
   if (existing) return existing;
 
-  // `neon-http` has no interactive transaction, but a batch is one.
+  // `neon-http` has no interactive transaction, but a batch is one. The profile
+  // is filled here so the mirror is useful even before webhooks are configured;
+  // one Backend API call, and only for a user this app has never seen.
   const tenantId = crypto.randomUUID();
+  const profile = await clerkProfile(userId);
   const [, insertedUser] = await db.batch([
     db.insert(tenants).values({ id: tenantId, name: "Personal space" }),
     db
       .insert(users)
-      .values({ id: userId, tenantId })
+      .values({ id: userId, tenantId, ...profile })
       .onConflictDoNothing()
       .returning({ tenantId: users.tenantId }),
   ]);
@@ -82,7 +81,28 @@ async function resolveTenantId(userId: string, orgId: string | null | undefined)
   return raced;
 }
 
-async function findOrgTenant(orgId: string): Promise<string | null> {
+/** A team tenant, keyed by the Clerk Organization id. */
+export async function ensureOrganizationTenant(
+  orgId: string,
+  name?: string,
+): Promise<string> {
+  const db = getDb();
+
+  const existing = await findOrgTenant(orgId);
+  if (existing) return existing;
+
+  const inserted = await db
+    .insert(tenants)
+    .values({ clerkOrgId: orgId, name: name?.trim() || (await organizationName(orgId)) })
+    .onConflictDoNothing()
+    .returning({ id: tenants.id });
+
+  const raced = inserted[0]?.id ?? (await findOrgTenant(orgId));
+  if (!raced) throw new Error(`Could not resolve a tenant for organization ${orgId}.`);
+  return raced;
+}
+
+export async function findOrgTenant(orgId: string): Promise<string | null> {
   const [row] = await getDb()
     .select({ id: tenants.id })
     .from(tenants)
@@ -98,6 +118,26 @@ async function findPersonalTenant(userId: string): Promise<string | null> {
     .where(eq(users.id, userId))
     .limit(1);
   return row?.tenantId ?? null;
+}
+
+/** Best effort: a missing profile must never block the first request. */
+async function clerkProfile(userId: string) {
+  try {
+    const client = await clerkClient();
+    const user = await client.users.getUser(userId);
+    const email =
+      user.emailAddresses.find((address) => address.id === user.primaryEmailAddressId)
+        ?.emailAddress ?? user.emailAddresses[0]?.emailAddress ?? null;
+
+    return {
+      email,
+      firstName: user.firstName ?? null,
+      lastName: user.lastName ?? null,
+      imageUrl: user.imageUrl ?? null,
+    };
+  } catch {
+    return {};
+  }
 }
 
 async function organizationName(orgId: string): Promise<string> {

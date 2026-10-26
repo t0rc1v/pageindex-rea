@@ -18,6 +18,25 @@ import { expect, test as setup } from "@playwright/test";
 const USER_EMAIL = process.env.E2E_CLERK_USER_EMAIL ?? "pageindex-e2e+clerk_test@example.com";
 const STATE_PATH = "e2e/.auth/user.json";
 
+/**
+ * A minimal, structurally valid PDF. The mock accepts anything with a `%PDF-`
+ * header; using the real upload endpoint (rather than seeding Postgres) is what
+ * makes this suite exercise registration, the ownership registry and the
+ * document routes the way a real workspace does.
+ */
+const SAMPLE_PDF = Buffer.from(
+  [
+    "%PDF-1.4",
+    "1 0 obj<</Type /Catalog /Pages 2 0 R>>endobj",
+    "2 0 obj<</Type /Pages /Kids [3 0 R] /Count 1>>endobj",
+    "3 0 obj<</Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]>>endobj",
+    "trailer<</Root 1 0 R>>",
+    "%%EOF",
+    "",
+  ].join("\n"),
+  "utf8",
+);
+
 setup.describe.configure({ mode: "serial" });
 
 setup("clerk testing token", async () => {
@@ -37,6 +56,19 @@ setup("sign in the test user", async ({ page }) => {
   // The suite writes real rows to the development database, so it starts from an
   // empty Recents; leftover conversations would leak into later assertions.
   await page.request.delete("/api/chats");
+
+  // Register the mock's document the same way a user would. Re-running is
+  // harmless: the registry upserts on (tenant, pageindex_id).
+  const uploaded = await page.request.post("/api/upload", {
+    multipart: {
+      file: {
+        name: "Annual Report 2024.pdf",
+        mimeType: "application/pdf",
+        buffer: SAMPLE_PDF,
+      },
+    },
+  });
+  expect(uploaded.ok(), await uploaded.text()).toBeTruthy();
 
   await page.context().storageState({ path: STATE_PATH });
 });

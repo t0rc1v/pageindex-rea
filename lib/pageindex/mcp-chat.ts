@@ -6,6 +6,7 @@ import { openai } from "@ai-sdk/openai";
 import { dynamicTool, jsonSchema, stepCountIs, streamText, type ToolSet } from "ai";
 
 import { PAGEINDEX_API_URL } from "./client";
+import { MCP_READ_TOOLS, normalizeDocName, toolCallAllowed } from "./doc-scope";
 import type { ChatMessage, ChatStreamEvent } from "./types";
 
 /**
@@ -40,12 +41,14 @@ const MAX_TOOL_CHARS = 60_000;
 const MAX_STEPS = 12;
 
 function systemPrompt(docs: Array<{ id: string; name: string }>): string {
+  // The model can only open documents by name, so this list *is* the scope: the
+  // tools are clamped to it in `openMcpChatStream`.
   const scope =
     docs.length === 0
-      ? "The whole PageIndex library is available."
-      : `The user scoped this conversation to:\n${docs
+      ? "There are no documents available to you. Say so instead of guessing."
+      : `The only documents available to you:\n${docs
           .map((doc) => `- ${doc.name}`)
-          .join("\n")}\nStay within these documents.`;
+          .join("\n")}\nNever reference or look for any other document.`;
 
   return [
     "You are the research assistant inside PageIndex Reader, a co-reader for long documents.",
@@ -126,9 +129,11 @@ export async function* openMcpChatStream(input: {
     const { tools } = await client.listTools();
     const toolSet: ToolSet = {};
 
+    const allowedDocs = new Set(input.docs.map((doc) => normalizeDocName(doc.name)));
+
     for (const tool of tools) {
-      // Reading tools only: the model must not be able to delete a document.
-      if (/remove|delete|drop|destructive/i.test(tool.name)) continue;
+      if (!MCP_READ_TOOLS.has(tool.name)) continue;
+
       toolSet[tool.name] = dynamicTool({
         description: tool.description ?? tool.name,
         inputSchema: jsonSchema(
@@ -139,9 +144,17 @@ export async function* openMcpChatStream(input: {
           }) as Parameters<typeof jsonSchema>[0],
         ),
         execute: async (args) => {
+          const argumentsRecord = (args ?? {}) as Record<string, unknown>;
+          const verdict = toolCallAllowed(argumentsRecord, allowedDocs);
+          if (!verdict.allowed) {
+            // Refused as tool output rather than thrown: the model should tell the
+            // user the document is out of scope, not fail the whole answer.
+            return `Refused: "${verdict.name}" is not part of this workspace.`;
+          }
+
           const result = await client.callTool({
             name: tool.name,
-            arguments: (args ?? {}) as Record<string, unknown>,
+            arguments: argumentsRecord,
           });
           return mcpResultText(result);
         },

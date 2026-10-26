@@ -23,6 +23,17 @@ const doc = {
   metadata: null,
 };
 
+const otherDoc = {
+  id: "pi-mock-2",
+  name: "Acquisition Memo.pdf",
+  description: "A document that belongs to a different workspace.",
+  status: "completed",
+  createdAt: "2026-01-05T10:00:00.000Z",
+  pageNum: 2,
+  folderId: null,
+  metadata: null,
+};
+
 const tree = [
   {
     title: "Financial Highlights",
@@ -194,7 +205,7 @@ const server = http.createServer(async (req, res) => {
   // documents
   if (req.method === "GET" && (path === "/docs/" || path === "/docs")) {
     const folderId = url.searchParams.get("folder_id");
-    const list = folderId === "folder-a" ? [] : [doc];
+    const list = folderId === "folder-a" ? [] : [doc, otherDoc];
     return json(res, 200, {
       documents: list,
       total: list.length,

@@ -3,19 +3,25 @@ import {
   chatPayloadSchema,
   deleteChat,
   getChat,
+  parseChatId,
   renameChat,
   saveChat,
 } from "@/lib/server/chats";
 import { errorResponse, jsonResponse } from "@/lib/server/http";
+import { rateLimit, rateLimited } from "@/lib/server/rate-limit";
 import { requireTenant } from "@/lib/server/tenant";
 
 const notFound = () =>
   jsonResponse({ error: "Chat not found.", code: "NOT_FOUND", status: 404 }, { status: 404 });
 
+/** ~2 MB of streamed blocks, citations and tool payloads. */
+const MAX_CHAT_BYTES = 2 * 1024 * 1024;
+
 /** GET /api/chats/:chatId — the full conversation, turns and runs included. */
 export async function GET(_request: Request, ctx: RouteContext<"/api/chats/[chatId]">) {
   const { tenantId, userId } = await requireTenant();
-  const { chatId } = await ctx.params;
+  const chatId = parseChatId((await ctx.params).chatId);
+  if (!chatId) return notFound();
 
   const chat = await getChat(tenantId, userId, chatId);
   return chat ? jsonResponse({ chat }) : notFound();
@@ -29,7 +35,21 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/chats/[chat
  */
 export async function PUT(request: Request, ctx: RouteContext<"/api/chats/[chatId]">) {
   const { tenantId, userId } = await requireTenant();
-  const { chatId } = await ctx.params;
+  const chatId = parseChatId((await ctx.params).chatId);
+  if (!chatId) return notFound();
+
+  const verdict = await rateLimit(`chats-write:${userId}`, 240, 60);
+  if (!verdict.allowed) return rateLimited(verdict);
+
+  // A conversation is rewritten whole on every settled run. Cap the body so a
+  // client cannot stream megabytes of block text into the row.
+  const declared = Number(request.headers.get("content-length") ?? 0);
+  if (Number.isFinite(declared) && declared > MAX_CHAT_BYTES) {
+    return jsonResponse(
+      { error: "That conversation payload is too large.", code: "INTERNAL", status: 413 },
+      { status: 413 },
+    );
+  }
 
   const parsed = chatPayloadSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
@@ -65,7 +85,11 @@ export async function PUT(request: Request, ctx: RouteContext<"/api/chats/[chatI
 /** PATCH /api/chats/:chatId — rename. */
 export async function PATCH(request: Request, ctx: RouteContext<"/api/chats/[chatId]">) {
   const { tenantId, userId } = await requireTenant();
-  const { chatId } = await ctx.params;
+  const chatId = parseChatId((await ctx.params).chatId);
+  if (!chatId) return notFound();
+
+  const verdict = await rateLimit(`chats-write:${userId}`, 240, 60);
+  if (!verdict.allowed) return rateLimited(verdict);
 
   const body = (await request.json().catch(() => null)) as { title?: unknown } | null;
   const title = typeof body?.title === "string" ? body.title.trim().slice(0, 200) : "";
@@ -84,7 +108,11 @@ export async function PATCH(request: Request, ctx: RouteContext<"/api/chats/[cha
 /** DELETE /api/chats/:chatId — drop the conversation; turns and runs cascade. */
 export async function DELETE(_request: Request, ctx: RouteContext<"/api/chats/[chatId]">) {
   const { tenantId, userId } = await requireTenant();
-  const { chatId } = await ctx.params;
+  const chatId = parseChatId((await ctx.params).chatId);
+  if (!chatId) return notFound();
+
+  const verdict = await rateLimit(`chats-write:${userId}`, 240, 60);
+  if (!verdict.allowed) return rateLimited(verdict);
 
   return (await deleteChat(tenantId, userId, chatId))
     ? new Response(null, { status: 204 })
