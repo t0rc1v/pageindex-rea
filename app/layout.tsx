@@ -48,7 +48,16 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       suppressHydrationWarning
     >
       <body className="flex h-dvh flex-col overflow-hidden bg-paper text-ink">
-        <ClerkProvider appearance={{ theme: shadcn }}>
+        {/* Routes live here, not in `NEXT_PUBLIC_CLERK_*`. Props win, and they
+            keep clerk-js from resolving the Clerk Account Portal — a second
+            origin the CSP deliberately blocks (see `proxy.ts`). */}
+        <ClerkProvider
+          signInUrl="/sign-in"
+          signUpUrl="/sign-up"
+          signInFallbackRedirectUrl="/chat"
+          signUpFallbackRedirectUrl="/chat"
+          appearance={{ theme: shadcn }}
+        >
           <AppProviders>
             <ConfirmProvider>{children}</ConfirmProvider>
           </AppProviders>
