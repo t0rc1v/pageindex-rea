@@ -155,6 +155,33 @@ pooler is where `drizzle-kit` fails first. The app uses `drizzle-orm/neon-http`
 (one request per query, nothing to pool), and `db.batch()` is what keeps
 multi-statement writes atomic, since that driver has no interactive transactions.
 
+### Applying migrations to production
+
+Development is a local command; production is a button, so the production
+connection string never has to exist on a laptop.
+
+1. Edit `lib/db/schema.ts`, run `pnpm db:generate`, read the SQL it wrote.
+2. `pnpm db:migrate` against your dev branch, and exercise the change.
+3. Commit the schema **and** the generated SQL, open a PR, merge.
+4. Actions → **Migrate database** → *Run workflow* (from `main`) → type `migrate`.
+5. Deploy the code that expects the new schema.
+
+The workflow resolves its target from an **environment** secret
+(`Settings → Environments → production → DATABASE_URL_UNPOOLED`, with required
+reviewers so a run pauses for approval). It prints only the host it is about to
+migrate, then applies the committed files. Nothing is applied that is not in the
+repository.
+
+**Order matters, and so does shape.** Migrate before deploying, because the old
+version keeps serving during the rollout — and write migrations that the *old*
+code still tolerates. Add a column, deploy code that uses it, drop the old one in
+a later release; a `DROP COLUMN` shipped alongside the code that stopped reading
+it will break the version still in flight.
+
+Never paste generated SQL into Neon's editor: the schema changes but Drizzle's
+`__drizzle_migrations` journal does not, and the next `db:migrate` tries to apply
+it again. Never migrate on app boot either — every instance would race.
+
 ---
 
 ## Routes
@@ -300,6 +327,10 @@ request.
 | --- | --- | --- |
 | `verify` | no | `pnpm lint`, `tsc --noEmit`, `pnpm test`, `pnpm build` |
 | `e2e` | yes | migrate, provision the sign-in account, build, Playwright |
+
+A third workflow, `migrate.yml`, is **manual only** (`workflow_dispatch`) and
+applies committed migrations to the production branch — see
+[Applying migrations to production](#applying-migrations-to-production).
 
 `verify` is secretless on purpose: `getDb()` is lazy and Clerk only needs a
 well-formed publishable key to prerender the sign-in route, so the job builds with

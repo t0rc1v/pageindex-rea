@@ -1,0 +1,67 @@
+name: Migrate database
+
+# Manual by design. Migrations are the one operation here that cannot be undone
+# by redeploying, so they run on a button press rather than on a push.
+#
+# Setup once:
+#   1. Settings → Environments → New environment → "production"
+#   2. Add a required reviewer to it (so a run pauses for approval)
+#   3. Add an *environment* secret DATABASE_URL_UNPOOLED — the direct, unpooled
+#      connection string of the production branch
+#   4. Dispatch this workflow from `main`
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type "migrate" to confirm this runs against production
+        required: true
+        type: string
+
+# Two migration runs at once can deadlock each other on DDL locks.
+concurrency:
+  group: migrate-database
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Apply pending migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      DATABASE_URL_UNPOOLED: ${{ secrets.DATABASE_URL_UNPOOLED }}
+    steps:
+      - name: Confirm intent
+        if: inputs.confirm != 'migrate'
+        run: |
+          echo "::error::Type 'migrate' in the confirm field to run this workflow."
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The environment secret is the only thing that should ever reach this
+      # job, so say so loudly when it is missing rather than failing inside
+      # drizzle-kit. The credential itself is never printed — only the host, so
+      # the log answers "which database did I just migrate?".
+      - name: Check the target
+        run: |
+          if [ -z "$DATABASE_URL_UNPOOLED" ]; then
+            echo "::error::No DATABASE_URL_UNPOOLED on the 'production' environment. Add the direct (unpooled) connection string for the production branch."
+            exit 1
+          fi
+          node -e "const u = new URL(process.env.DATABASE_URL_UNPOOLED); console.log('target host:', u.hostname, '| database:', u.pathname.slice(1))"
+
+      - name: Migrations in this checkout
+        run: ls -1 lib/db/migrations/*.sql | tail -20
+
+      - name: Apply
+        run: pnpm db:migrate
