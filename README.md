@@ -332,6 +332,10 @@ A third workflow, `migrate.yml`, is **manual only** (`workflow_dispatch`) and
 applies committed migrations to the production branch — see
 [Applying migrations to production](#applying-migrations-to-production).
 
+`CONTRIBUTING.md` is the day-to-day version of all of this: the branch → PR →
+checks → merge → migrate → deploy loop, the three databases, and the failure
+playbook.
+
 `verify` is secretless on purpose: `getDb()` is lazy and Clerk only needs a
 well-formed publishable key to prerender the sign-in route, so the job builds with
 placeholder values.
@@ -373,6 +377,7 @@ lib/
   server/tenant.ts             session → tenant (personal or organization)
   server/pages-cache.ts        bounded page-content cache
 drizzle.config.ts              drizzle-kit (loads .env.local via @next/env)
+CONTRIBUTING.md                the branch → PR → migrate → deploy loop
 .github/workflows/ci.yml       verify (secretless) + e2e (guarded) jobs
 scripts/ensure-e2e-user.mjs    idempotent test-account provisioning
 docs/REVERSE-ENGINEERING.md    evidence, inferences, open questions
