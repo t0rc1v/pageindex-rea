@@ -175,7 +175,10 @@ body {
   margin-bottom: 0;
 }
 
-.md-body p {
+/* A paragraph holding a figure renders as `<div class="md-block">`; see
+   lib/markdown-blocks.ts. Same margin so the swap is invisible. */
+.md-body p,
+.md-body .md-block {
   margin: 0 0 0.85em;
 }
 

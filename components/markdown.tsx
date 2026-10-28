@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 
 import { citationKey, tokenizeCitations } from "@/lib/citations";
 import { downloadFile } from "@/lib/chat-export";
+import { paragraphRendersBlock } from "@/lib/markdown-blocks";
 import type { Citation } from "@/lib/pageindex/types";
 import { CitationChip, type CitationPreviewHandler } from "./citation-chip";
 import { MermaidDiagram } from "./markdown-mermaid";
@@ -42,6 +43,7 @@ type AnchorProps = ComponentProps<"a"> & ExtraProps;
 type ImageProps = ComponentProps<"img"> & ExtraProps;
 type PreProps = ComponentProps<"pre"> & ExtraProps;
 type TableProps = ComponentProps<"table"> & ExtraProps;
+type ParagraphProps = ComponentProps<"p"> & ExtraProps;
 
 function MarkdownLink({ href, children, ...props }: AnchorProps) {
   const { citations, onPreview } = useContext(MarkdownScopeContext);
@@ -80,6 +82,17 @@ function MarkdownTable({ children }: TableProps) {
   return <TableFrame>{children}</TableFrame>;
 }
 
+/**
+ * Images become `<figure>`s, which cannot live inside `<p>`: the browser closes
+ * the paragraph while parsing and React then reports a hydration mismatch. Those
+ * paragraphs render as a block container instead — `.md-block` carries the same
+ * spacing so the two are visually identical.
+ */
+function MarkdownParagraph({ node, children }: ParagraphProps) {
+  if (paragraphRendersBlock(node)) return <div className="md-block">{children}</div>;
+  return <p>{children}</p>;
+}
+
 function MarkdownPre({ children }: PreProps) {
   const fence = readFence(children);
   if (fence.lang === "mermaid") return <MermaidDiagram code={fence.text} />;
@@ -89,6 +102,7 @@ function MarkdownPre({ children }: PreProps) {
 const MARKDOWN_COMPONENTS: Components = {
   a: MarkdownLink,
   img: MarkdownImage,
+  p: MarkdownParagraph,
   table: MarkdownTable,
   pre: MarkdownPre,
 };

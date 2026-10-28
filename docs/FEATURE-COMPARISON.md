@@ -186,6 +186,9 @@ Every browser call is `POST /api/orpc/<router>/<proc>` with `{json: …}`, plus
 
 ## 4. Status against this clone
 
+Status as of the current build (revised 2026-10-29); §8, §9.10 and §9.11 record
+the work behind each ✔.
+
 Legend: **✔ parity** · **◐ partial** · **✗ missing**
 
 ### 4.1 Shell and navigation
@@ -195,31 +198,31 @@ Legend: **✔ parity** · **◐ partial** · **✗ missing**
 | Sidebar, icon rail, mobile drawer | ✔ | |
 | New chat / Documents | ✔ | |
 | **Explore** entry + public packs | ✗ | |
-| Recents with rename/delete | ✔ | localStorage vs server |
+| Recents with rename/delete | ✔ | server-backed, per tenant + author |
 | Recents **share** + shared indicator | ✗ | |
-| Account footer (avatar, plan, Upgrade) | ✗ | |
+| Account footer (avatar, plan, Upgrade) | ◐ | avatar, Account and Settings; no plan or Upgrade |
 | Usage meter (`%`, ring in rail mode) | ◐ | doc/page counts, no quota |
-| Dark shell + rounded app panel | ✗ | paper theme |
-| Settings hub (Workspace / Integrations / Other) | ✗ | flat settings page |
+| Dark shell + rounded app panel | ◐ | paper is the default; dark ships as a theme |
+| Settings hub (Workspace / Integrations / Other) | ◐ | one page with a sticky section nav |
 
 ### 4.2 Conversation
 
 | Feature | Clone | Note |
 | --- | --- | --- |
 | Chat + document beside it | ✔ | 430 px fixed panel |
-| Context card above the user bubble | ✗ | |
+| Context card above the user bubble | ✔ | `turn.docs` snapshot |
 | Blue user bubble | ◐ | black bubble |
-| Reasoning row (`Thought for Ns`) | ✗ | |
-| Tool rows: icon, chevron, shimmer | ◐ | 11 px flat line, spinner/✓ |
-| **Expanded tool result** (outline table / returned pages) | ✗ | |
-| **`View raw input and output`** | ✗ | |
+| Reasoning row (`Thought for Ns`) | ✔ | elapsed time, not a reasoning trace |
+| Tool rows: icon, chevron, shimmer | ✔ | |
+| **Expanded tool result** (outline table / returned pages) | ✔ | |
+| **`View raw input and output`** | ✔ | |
 | Citation chips | ✔ | ours adds number + `· block` |
-| **Sources** hairline + counts + grouping | ◐ | dashed chip strip |
-| **Copy / Download / Regenerate** + timestamp | ✗ | |
-| **Edit message → re-run** | ✗ | |
-| **Export answer .md / .docx / .pdf** | ✗ | |
-| Mermaid + table/image copy & download | ✗ | remark-gfm tables only |
-| Scroll-to-bottom affordance | ✗ | |
+| **Sources** hairline + counts + grouping | ✔ | |
+| **Copy / Download / Regenerate** + timestamp | ✔ | |
+| **Edit message → re-run** | ✔ | previous wording + answer kept behind `‹ 2/3 ›` |
+| **Export answer .md / .docx / .pdf** | ✔ | |
+| Mermaid + table/image copy & download | ✔ | |
+| Scroll-to-bottom affordance | ✔ | |
 | Stop generation | ✔ | |
 | Share chat / read-only view | ✗ | |
 
@@ -229,25 +232,25 @@ Legend: **✔ parity** · **◐ partial** · **✗ missing**
 | --- | --- | --- |
 | Hover citation card (320 px) | ✔ | |
 | Block text + page highlight | ✔ | bbox overlay |
-| `Page N of M` + block-type pill | ✗ | |
-| `Open page ↗` | ◐ | small button |
-| Resizable panel + **tabs per document** | ✗ | |
+| `Page N of M` + block-type pill | ✔ | |
+| `Open page ↗` | ✔ | |
+| Resizable panel + **tabs per document** | ✔ | |
 | **True PDF + determinate progress** | ✗ | page JPEG + OCR markdown |
-| **Mobile: full-height `Document Viewer` sheet** | ◐ | full-screen overlay, no title/desc |
-| `Document info`, `Add Page to Chat` | ✗ | |
+| **Mobile: full-height `Document Viewer` sheet** | ✔ | bottom sheet under `lg` |
+| `Document info`, `Add Page to Chat` | ✔ | |
 | Bulk `resolveCitations` server call | ◐ | per-block fetch |
 
 ### 4.4 Platform
 
 | Feature | Clone | Note |
 | --- | --- | --- |
-| Server-side chats (cross-device) | ✗ | localStorage |
-| Auth (Google/GitHub/magic link) | ✗ | single-user key |
+| Server-side chats (cross-device) | ✔ | `chats` / `chat_turns` / `chat_runs` in Postgres — §9.11 |
+| Auth | ◐ | Clerk: gated pages, personal space + Organizations; sign-in methods are Clerk instance config |
 | Page + query metering, warnings | ✗ | |
 | Plans, Stripe, invoices, seats, team space | ✗ | |
-| **Answer export (md/docx/pdf)** | ✗ | |
+| **Answer export (md/docx/pdf)** | ✔ | client-side `docx` + jsPDF, Markdown export |
 | **MCP server + Connect UI (Claude/Cursor)** | ◐ | we consume PageIndex MCP; we don't expose one |
-| Ingestion formats | ✗ | PDF only (no CSV/MD/TXT/ZIP) |
+| Ingestion formats | ✔ | PDF, Word, PowerPoint, CSV, Markdown, TXT and `.zip` bundles |
 | `file/resolveCitations` bulk resolution | ✗ | |
 | Privacy toggle + delete-all-files | ✗ | |
 | Share eligibility / dependency-scoped shares | ✗ | |
@@ -255,6 +258,11 @@ Legend: **✔ parity** · **◐ partial** · **✗ missing**
 ---
 
 ## 5. Gaps ranked
+
+Ranked at the §8 build. Delivered since, per §8 and §9.10: **1, 2, 4, 6, 7, 8,
+11**; partial: **3** (tabs and resize, but page images not PDF), **9**, **10**,
+**14**; open: **5** (share), **12** (billing — auth and server chats shipped,
+§9.11), **13** (MCP exposure).
 
 **P0 — reads as a different product without these**
 
@@ -277,7 +285,8 @@ Legend: **✔ parity** · **◐ partial** · **✗ missing**
 
 **P2 — commercial**
 
-12. Auth, server-side chats, `/subscription` (Pro $20, Team $150/5 seats), Stripe.
+12. Billing: `/subscription` (Pro $20, Team $150/5 seats), Stripe. *(Auth and
+    server-side chats have shipped — §9.11.)*
 13. **MCP exposure** (`/mcp` + `/oauth/authorize` + Connect UI) — we are a consumer
     of PageIndex MCP, the official app is a *provider*.
 14. Rate limits, quota warnings, delete-all-files.
@@ -304,6 +313,10 @@ Legend: **✔ parity** · **◐ partial** · **✗ missing**
 **Do first:** (1) message toolbar + export, (2) tool-step expansion + raw I/O,
 (3) Sources rewrite, (4) citation card, (5) panel tabs/resize/PDF, (6) composer.
 Then ingestion breadth and the account/usage surfaces.
+
+*(1), (2), (3), (4) and (6) and the resize/tabs half of (5) have shipped — §8 and
+§9.10. What remains from this list is PDF fidelity, which the Cloud API withholds
+(§9.9).)*
 
 ---
 
@@ -343,8 +356,9 @@ live Cloud API.
 
 ### Deliberately not built
 
-- **Sharing** (`/share/chat/:id`), **subscriptions**, seats, team spaces, usage
-  quotas and Stripe — no backend for them, and out of the agreed scope.
+- **Sharing** (`/share/chat/:id`), **subscriptions**, seat management and usage
+  quotas, Stripe — no backend for them, and out of the agreed scope. *(Tenancy
+  itself arrived later; see §9.11.)*
 - **MCP server exposure** — this app consumes PageIndex's MCP; exposing its own
   `/mcp` + OAuth is a separate product.
 - **True PDF rendering** — the Cloud API serves page images, not the source PDF.
@@ -368,109 +382,110 @@ live Cloud API.
 
 ---
 
----
-
 ## 9. Remaining parity gaps
 
-State after the §8 build: the **conversation surface** is close. What is left sits
-in the product shell around it, the backend that shell assumes, and one
-deliberate visual divergence. Every row names what blocks it, because the three
-classes need very different work:
+What is still open after §9.10 and §9.11 landed. Each subsection opens with what
+it has since shipped, so the tables stay short and stay true. Every row names
+what blocks it, because the three classes need very different work:
 
 - **[ui]** — pure client work, no new infrastructure.
-- **[svc]** — needs storage/auth/billing (the things this build excludes).
+- **[svc]** — needs a service this build does not run: sharing, metering or billing.
 - **[api]** — the PageIndex Cloud API does not expose it.
 
 ### 9.1 Frontend — chat
 
+Delivered since: artifact menus, `.docx`/`.pdf` export, figure and table citation
+previews, the attachment card, `Add Page to Chat` and local feedback — §9.10
+items 2–8.
+
 | Gap | Detail | Blocked by |
 | --- | --- | --- |
-| Response branching | Delivered (9.10 item 1): per-turn runs behind `‹ 2/3 ›`, on answers **and** on edited questions. The official keeps sibling runs behind `MessageBranchPrevious` / `MessageBranchNext`. Still missing: a conversation *tree*, where a later turn survives a branch switch. | — |
-| **Table / diagram / image artifact menu** | Theirs: `Copy table as MD/CSV/TSV`, `Download table as CSV/Markdown`, `Download diagram as SVG/PNG/MMD`, `Copy code`, `Download image`, `Copy link`. Ours: table → copy MD / download CSV, code → copy. Missing: TSV, per-table Markdown download, **Mermaid rendering** (so no diagram export), image download, copy link. | **[ui]** (Mermaid is a lazy-loaded dep) |
-| **Answer export formats** | Theirs emit `.md`, `.docx`, `.pdf` with progress toasts. Ours emits `.md` and "Print → Save as PDF". | **[ui]** — `docx`/`pdf` are client libraries, not a service |
-| **Image / table citation variants** | Theirs have dedicated previews (`Cited image`, `Cited pages`) and a per-kind block pill. We resolve text blocks well; a figure citation shows the surrounding page, not the extracted figure. We already proxy `GET /doc/{id}/image/{img_id}` and receive `block_type` + `bbox`, so the data is present. | **[ui]** |
-| **Typewriter + Streamdown** | They animate the answer and render code through Streamdown. We paint markdown per token batch with no reveal. | **[ui]** |
-| Attachment card above the user turn | Theirs shows the folder/document card ("Following · 1 File") above the bubble. We carry scope only inside the composer. | **[ui]** — scope is already in state |
-| `Add Page to Chat` | Add a specific page to the conversation context from the reader or panel. | **[ui]** |
-| Feedback capture | Their client carries an `$ai_feedback` flag and toolbar slots (inferred, not observed end to end). We have no thumbs/report affordance. | **[ui]** local-only, or **[svc]** for a real sink |
+| Conversation tree | Per-turn runs behind `‹ 2/3 ›` cover regenerate **and** edited questions (§9.10 item 1), but a later turn does not survive a branch switch. The official pairs sibling runs the same way; neither has a tree. | **[ui]** |
+| Streamdown-style code rendering | Answers reveal through the typewriter (#5), but fenced code is still a plain `<pre><code>` with a copy button — no syntax highlighting. Theirs render through Streamdown. | **[ui]** — needs a highlighting dependency |
+| Feedback sink | Thumbs are stored on the turn, locally (#8). Their client carries an `$ai_feedback` flag and toolbar slots; anything shared needs somewhere to send it. | **[svc]** for a real sink |
 
 ### 9.2 Frontend — documents, library, reader
+
+Delivered since: grid ⇄ list toggle, rename/description, ZIP per-entry results and
+per-file upload progress — §9.10 items 9–12.
 
 | Gap | Detail | Blocked by |
 | --- | --- | --- |
 | **Following** view | "1 saved resource" card → live knowledge libraries you follow. | **[svc]** + **[api]** (no explore endpoint) |
 | **Shared with me** view | "0 saved resources" card, per-view search, "Open a share link and add it to Documents". | **[svc]** |
-| **Grid ⇄ list toggle** | They have a `LayoutGrid` / `List` segmented control in the `My Documents` toolbar. Ours is a fixed responsive card grid (`sm:grid-cols-2 xl:grid-cols-3`). | **[ui]** |
-| **Document management** | Rename, description/metadata edit, per-document `…` menu. `PUT /doc/{doc_id}/metadata` exists upstream, so rename is **[ui]** plus one BFF route; **moving between folders is not in the documented API**. | **[ui]** / **[api]** for move |
+| **Folder move** | Rename and description ship, but a document cannot be re-filed after upload: `PATCH /api/docs/:id` takes `name` and `description` only, and a folder move is not in the documented upstream API. Folders are chosen at upload time. | **[ui]** — local metadata, no upstream call |
 | **Folder sharing, nested share links** | `/share/folder/:shareId`. | **[svc]** |
 | **Saved collections** | `SAVED_COLLECTIONS`, official vs user attribution. | **[svc]** |
 | **PDF rendering** | Theirs renders the source PDF (text selection, native tables). We render presigned page JPEGs plus OCR markdown, with a page-text toggle. | **[api]** — the Cloud API serves page images, not the original file |
-| **ZIP bundle results** | `POST /doc/` returns `202` with per-entry results for a `.zip`; we accept the upload but never surface the expanded tree or which entries failed. | **[ui]** |
-| Per-file upload progress | We upload a batch (`multiple`) behind one spinner. | **[ui]** |
 | Reader fidelity | They highlight the cited block inside a PDF and scroll to it; we do page + bbox overlay + arrow paging. Neither has in-document search. | **[api]** for fidelity |
 
 ### 9.3 Frontend — shell, settings, onboarding
 
+Delivered since: first-run onboarding with a sample document, the toast system and
+shadcn `AlertDialog` — §9.10 items 13–15.
+
 | Gap | Detail | Blocked by |
 | --- | --- | --- |
 | **Explore** | Public packs, featured carousel, category chips, search, `Learn more` / `Start chat`, follow, `/explore/:slug`, `/explore/manage`. | **[svc]** + **[api]** |
-| **Account footer** | Avatar, display name, plan label, **Upgrade**, usage meter (ring in rail mode). | **[svc]** |
+| **Account footer** | Avatar and Account/Settings ship; the plan label, **Upgrade** and the rail usage ring do not, because there is no billing. | **[svc]** |
 | **Plan usage meter** | `0% · 0 of 1,000 pages`, `1 of 100 queries`, `shouldShowWarning`. We show indexed documents/pages — real data, but not a quota. | **[svc]** |
-| **Settings hub** | Workspace (Settings, Subscription, Usage, Privacy & Data) · Integrations (Connect/MCP, Enterprise) · Other (Team Space). Ours is one page: connection, key, local data, lane, shortcuts. | **[svc]** for most; the hub layout itself is **[ui]** |
+| **Settings hub** | The grouped nav lists Appearance / Connection / Chat lane / Conversations / Shortcuts; the official's Workspace (Subscription, Usage, Privacy & Data) and Integrations (Connect, Enterprise) sections have nothing behind them yet. | **[svc]** for most; the layout itself is **[ui]** |
 | **Privacy & Data** | `Allow data collection for model improvement`, `Delete All Files`, account deletion. | **[svc]** (delete-all needs a server route) |
 | **Connect (MCP)** | Claude Desktop `.mcpb` download, Cursor one-click deeplink, remote/local config. | **[svc]** — we would have to expose an MCP server |
-| **First-run onboarding** | "Welcome, <name> 👋" plus three illustrated cards (Upload / Select files / Start chatting) and `Upload my own document` / `Try the sample doc`. | **[ui]** |
-| **Sample pack** | A seeded document so "Try the sample doc" works before any upload. | **[ui]** if seeded from an existing doc |
-| **Notifications** | They run Sonner toasts everywhere; **we ship no toast system** and use 4 native `window.confirm` / `alert` calls. | **[ui]** |
-| Destructive-action UI | Should be shadcn `AlertDialog`, not the browser modal. | **[ui]** |
 
 ### 9.4 UI/UX & design language
 
 This layer is a **deliberate divergence**, not an oversight — "match or improve"
-was read as "keep the reading identity". If pixel parity is the goal, it is the
-largest remaining delta.
+was read as "keep the reading identity". If pixel parity is the goal, the
+remaining delta is typography, accent and density.
 
 | Property | app.pageindex.ai (measured) | This app | Class |
 | --- | --- | --- | --- |
-| Theme | dark-only: canvas `rgb(9,9,11)`, text `rgb(250,250,250)` | warm paper `#f7f5f1` / ink `#191817`; **no dark mode** | decision |
+| Theme | dark-only: canvas `rgb(9,9,11)`, text `rgb(250,250,250)` | warm paper `#f7f5f1` / ink `#191817` by default, dark available as a theme (#20) | decision |
 | Typography | Geist only, 16 px / 24 px body | Geist UI + **Source Serif** transcript and headings | decision |
 | Accent | blue, `#3788D8` theme colour, chips `#C3D8F5` | ochre `#b4622b`, `brand-soft` | decision |
 | Citation chip | 12 px, `2px 6px`, `doc p.N`, no number | 10 px, mono number + `· block` | decision |
 | Citation card | 320 × 204 | ~352 wide, taller | close |
-| Column / composer | 768 px / 768 × 145, radius 16 | 768 px / 768 × ~110, radius 12 | **[ui]** |
+| Column / composer | 768 px / 768 × 145, radius 16 | 768 px / 768 × 145, radius 16 (#18) | parity |
 | Tool row | 16 px icon, shimmer, chevron | 16 px icon, shimmer, chevron | parity |
-| Motion | 200 ms width/opacity, slide+fade collapsibles | instant panels, animated chevrons | **[ui]** |
+| Motion | 200 ms width/opacity, slide+fade collapsibles | `pi-enter` / `pi-sheet-in` on panels and collapsibles (#17) | parity |
 | Density | sm 14 px controls, 36 px height | 11.5–13 px controls, tighter | decision |
-| Toasts | Sonner | none | **[ui]** |
+| Toasts | Sonner | Sonner, plus `AlertDialog` for destructive actions (#14) | parity |
 
 ### 9.5 Backend / platform
 
+Delivered since: server-side conversations and accounts (§9.11), and the test
+harness (#19): 60 unit tests over citations, streaming grammar, exports,
+variant pairing, citation placement, doc scope and the Clerk Frontend API, plus
+Playwright e2e over steps → sources → branch → citation → appearance. CI runs
+`verify` (secretless) and `e2e` (guarded).
+
 | Gap | Detail | Blocked by |
 | --- | --- | --- |
-| **Server-side conversations** | Their `/chat?session=<id>` is a record (`chat/listSessions`, `chat/getSession`). Ours is localStorage: one browser, ~5 MB, no cross-device, lost on clear. | **[svc]** |
 | **Sharing** | `/share/chat/<id>`, `/share/doc/<id>`, `/share/folder/<id>`, read-only views, access toggles (chat/preview/download), revocation, `Share Chat` dialog with `canShare` / `dependencyCount`. | **[svc]** |
-| Auth | Google/GitHub/magic-link/password, `/magic-link`, `/forgot-password`, `/verification`, `/oauth/authorize`. | excluded by request |
 | Billing | Pro **$20/mo**, Team **$150/mo for 5 seats**, monthly/annual switch, proration, Stripe portal, invoices, page top-ups. | excluded by request |
-| Quota + rate limits | Page and query budgets, `shouldShowWarning`, upstream 429 handling with retry. We surface upstream errors but never meter, limit or retry. | **[svc]** metering / **[ui]** retry |
+| **Team spaces** | A Clerk Organization is already a tenant (§9.11), so documents are org-scoped today; member management, roles, invites and seats are not built. | **[svc]** |
+| Quota + rate limits | Page and query budgets, `shouldShowWarning`, upstream 429 handling with retry. We rate-limit streaming, uploads and conversation writes per user (`RATE_LIMITS`) and surface upstream errors, but do not meter pages or queries, and never retry. | **[svc]** metering / **[ui]** retry |
 | **MCP server** | `https://app.pageindex.ai/mcp` returns `401 invalid_token` without OAuth; their settings ship Claude/Cursor installers. We are an MCP *client* only. | **[svc]** |
-| **oRPC + TanStack Query** | They run a typed RPC router (16 procedures observed loading one chat page) with query caching. We run 11 REST handlers and a hand-rolled `useFetch`: no typed contract, no cache invalidation. Adequate at this size. | **[ui]** refactor, optional |
+| **oRPC + TanStack Query** | They run a typed RPC router (16 procedures observed loading one chat page). We run a REST handler per resource; `useFetch` sits on TanStack Query, so caching and invalidation are real, but there is no typed contract between client and server. Adequate at this size. | **[ui]** refactor, optional |
 | Observability | PostHog + Sentry in their bundle. We have no analytics, no error tracking, no structured logs. | **[svc]** (external) |
-| **Tests** | **This repo has none** — no unit, integration or e2e coverage of `citations.ts`, `chat-stream.ts`, the transcript or the reader. | **[ui]** |
 | Concurrency / backpressure | Handlers stream straight through: no queueing, no per-request budget, abort propagation only via the client `AbortController`. | **[ui]** |
-| Upload hardening | 50 MB cap and an extension allowlist, but no content sniffing, no per-entry ZIP reporting, no resumable uploads. | **[ui]** |
+| Upload hardening | Magic-byte sniffing compares the container with the claimed extension (#25). No resumable uploads, so a dropped connection restarts the file. | **[ui]** |
 
 ### 9.6 Data & persistence
 
 | Gap | Detail |
 | --- | --- |
-| Chats | `localStorage` key `pageindex-reader/chats/v1`, capped at 60. No schema-version migration, no export/import, no backup. |
-| Local state | Panel width in localStorage; citation previews cached 30 min; page OCR cached ~5 min server-side. |
+| Chats | Postgres (`chats`, `chat_turns`, `chat_runs`), keyed to `(tenant_id, created_by)`; `listChats` returns the newest 60. Conversations left in `localStorage` by earlier builds are imported once, on the first authenticated load, under their existing ids. |
+| Local state | Panel width and per-document last page in localStorage; appearance (theme / transcript / density) per browser; citation previews cached 30 min; page OCR cached ~5 min server-side. |
 | Usage counters | None — no page/query accounting exists anywhere in this app. |
 | Theirs | Relational records for chats, shares, saved collections, memberships, usage and subscriptions. |
 
 ### 9.7 Backlog A — no new infrastructure required
 
-Complete list, superseding the earlier "six things" summary.
+Complete list, superseding the earlier "six things" summary. **All of it shipped**
+— §9.10 carries the same numbering and says where — with one exception: item 5's
+Streamdown-style code rendering is still open (§9.1).
 
 **Chat**
 
@@ -481,7 +496,8 @@ Complete list, superseding the earlier "six things" summary.
    for those two formats.
 4. **Citation variants**: figure/table previews using the `block_type` and
    `img_id` we already receive.
-5. **Typewriter reveal** and Streamdown-style code rendering.
+5. **Typewriter reveal** and Streamdown-style code rendering. *(Typewriter
+   shipped; code highlighting did not — still open.)*
 6. Attachment card above the user turn.
 7. `Add Page to Chat`.
 8. Local-only feedback (thumbs stored on the turn) until a sink exists.
@@ -509,8 +525,8 @@ Complete list, superseding the earlier "six things" summary.
 
 ### 9.8 Backlog B — needs a service
 
-Server-side chats · sharing (chat/doc/folder + access toggles) · Explore, follow
-and saved collections · Following + Shared-with-me · auth · usage metering and
+Server-side **sharing** (chat/doc/folder + access toggles) · Explore, follow
+and saved collections · Following + Shared-with-me · usage metering and
 quotas · billing, plans, seats and team space · MCP server exposure · real
 feedback capture · observability backend.
 
@@ -583,3 +599,25 @@ withholds. Line references point at the commit that added it.
 
 **Not delivered:** nothing in this batch. Playwright runs against the installed
 Chrome (`channel: "chrome"`) so no browser download is required.
+
+---
+
+## 9.11 Delivered — accounts, tenancy, server-side conversations
+
+Shipped after §8 and §9.10. The rows in §4.1, §4.4, §5, §9.5, §9.6 and §9.8 that
+said "localStorage" or "single-user key" are corrected here as well; §1–§3 are
+unchanged, because they describe `app.pageindex.ai`.
+
+| Piece | What shipped | Where |
+| --- | --- | --- |
+| Accounts | Clerk gates every page and Route Handler. `auth.protect()` runs inside each handler rather than a URL matcher, so Server Functions and paths Next normalizes differently are covered too. | `proxy.ts`, `app/(shell)/*/page.tsx` |
+| Tenancy | `tenants` holds both personal spaces (`clerk_org_id` null) and Clerk Organizations. `requireTenant()` is the only place a request becomes a tenant — `tenantId = orgId` inside an org, the caller's personal tenant otherwise — so every query filters one column. | `lib/server/tenant.ts`, `lib/db/schema.ts` |
+| Sync | `POST /api/webhooks/clerk` mirrors `user.*` and `organization.*` into `users` / `tenants` (svix signature; 503 without a signing secret). Lazy creation in `requireTenant` means a first request never waits for a delivery, and both paths are race-safe. | `app/api/webhooks/clerk/route.ts`, `lib/server/clerk-sync.ts` |
+| Ownership | `documents` is this app's registry: `(tenant_id, pageindex_id)` unique, plus the workspace display name, folder and status. The Cloud API is account-global, so this table is what makes "is this document yours?" answerable at all. | `app/api/docs/*` |
+| Conversations | `chats` (tenant + author, scope docs as JSON), `chat_turns` (ordered, role), `chat_runs` (one answer variant per run, so regenerate and edit-and-resend both keep history). Recents reads newest-first per author; delete-all is rate-limited. | `lib/server/chats.ts`, `lib/chat-store.ts` |
+| Legacy import | Chats written to `localStorage` before this change are uploaded once under their existing ids, then the local copy is dropped. | `lib/chat-store.ts` |
+
+What this changes about the comparison: conversations are now a **record**, like
+theirs, so cross-device and "lost on clear" stop being caveats. Still absent from
+this surface, unchanged from §9.5 and §9.8: sharing (chat/doc/folder + access
+toggles), usage metering and quotas, billing/plans/seats, and team roles.
