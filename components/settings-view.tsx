@@ -3,7 +3,7 @@
 import Link from "next/link";
 
 import { useFetch } from "@/lib/client/hooks";
-import { useChats } from "@/lib/client/use-chats";
+import { useChats, useChatsStatus } from "@/lib/client/use-chats";
 import { clearChats } from "@/lib/chat-store";
 import { useAppearance } from "@/components/providers";
 import { useConfirm } from "@/components/ui/confirm";
@@ -30,6 +30,7 @@ const SECTIONS = [
 export function SettingsView() {
   const config = useFetch<ConfigPayload>("/api/config");
   const chats = useChats();
+  const chatsStatus = useChatsStatus();
   const confirm = useConfirm();
   const { appearance, setAppearance } = useAppearance();
 
@@ -38,9 +39,9 @@ export function SettingsView() {
       <div className="mx-auto w-full max-w-4xl px-5 py-6">
         <h1 className="font-serif text-xl text-ink">Settings</h1>
         <p className="mt-1 text-[12.5px] leading-relaxed text-ink-muted">
-          This reader talks to PageIndex Cloud with a server-side key. There is no
-          account system here: one key, one library, conversations kept in this
-          browser.
+          This reader talks to PageIndex Cloud with a server-side key, so one key backs the
+          whole upstream account. Documents are shared with your workspace; conversations
+          are saved to your account and only you can see them.
         </p>
 
         <div className="mt-5 grid gap-6 md:grid-cols-[160px_minmax(0,1fr)]">
@@ -193,9 +194,17 @@ export function SettingsView() {
 
             <Section id="data" title="Conversations">
               <p className="text-[12.5px] leading-relaxed text-ink-muted">
-                {chats.length === 0
-                  ? "No conversations stored yet."
-                  : `${chats.length} conversation${chats.length === 1 ? "" : "s"} stored in this browser (localStorage).`}
+                {chatsStatus === "ready"
+                  ? chats.length === 0
+                    ? "No conversations yet."
+                    : `${chats.length} conversation${chats.length === 1 ? "" : "s"} saved to your account, visible only to you.`
+                  : chatsStatus === "error"
+                    ? "Your conversations could not be loaded. Reload the page to try again."
+                    : "Checking your conversations…"}
+              </p>
+              <p className="mt-2 text-[12.5px] leading-relaxed text-ink-muted">
+                Conversations live on the server, so they follow you to another browser.
+                Documents and their indexes are not affected by clearing them.
               </p>
               <div className="mt-3 flex gap-1.5">
                 <Button
@@ -207,7 +216,7 @@ export function SettingsView() {
                       const ok = await confirm({
                         title: "Delete all conversations?",
                         description:
-                          "Every conversation in your account is removed, for this workspace. Documents and their indexes are untouched.",
+                          "Every conversation you started in this workspace is removed, for your account only. Documents and their indexes are untouched.",
                         confirmLabel: "Delete conversations",
                         tone: "danger",
                       });

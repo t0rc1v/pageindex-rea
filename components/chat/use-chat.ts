@@ -187,7 +187,7 @@ export interface UseChatResult {
 
 /**
  * The chat lane: managed PageIndex chat (`/api/chat`), streaming normalized
- * events, persisting the conversation in localStorage as it settles.
+ * events, saving the conversation to the server as it settles.
  *
  * A turn holds a list of runs so "Regenerate" keeps the previous answer behind
  * a branch control instead of destroying it.

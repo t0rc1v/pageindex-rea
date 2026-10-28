@@ -5,8 +5,10 @@ import { useEffect, useSyncExternalStore } from "react";
 import {
   getChatsServerSnapshot,
   getChatsSnapshot,
+  getChatsStatus,
   hydrateChats,
   subscribeChats,
+  type ChatsStatus,
   type StoredChat,
 } from "@/lib/chat-store";
 
@@ -23,4 +25,15 @@ export function useChats(): StoredChat[] {
   }, []);
 
   return chats;
+}
+
+/** Server render and the first client paint both report `loading`. */
+const SERVER_STATUS: ChatsStatus = "loading";
+
+/**
+ * The fetch state behind `useChats`. A count of zero means "none" only once this
+ * reports `ready`; before that the list is simply unknown.
+ */
+export function useChatsStatus(): ChatsStatus {
+  return useSyncExternalStore(subscribeChats, getChatsStatus, () => SERVER_STATUS);
 }

@@ -41,6 +41,10 @@ let cache: StoredChat[] = [];
 let hydrated = false;
 let inflight: Promise<void> | null = null;
 
+/** `idle` before the first fetch, `error` only after a failed one. */
+export type ChatsStatus = "idle" | "loading" | "ready" | "error";
+let status: ChatsStatus = "idle";
+
 const listeners = new Set<() => void>();
 const writes = new Map<string, Promise<void>>();
 
@@ -66,6 +70,15 @@ export function getChatsServerSnapshot(): StoredChat[] {
 }
 
 /**
+ * Whether Recents has answered yet. Empty chat lists are indistinguishable from
+ * "still loading", and every surface that counts them (settings, sidebar) would
+ * otherwise claim the user has none for as long as the request takes.
+ */
+export function getChatsStatus(): ChatsStatus {
+  return status;
+}
+
+/**
  * Pull Recents from the server, importing anything left in localStorage first.
  *
  * Idempotent: the first caller performs the work, later ones join it. `force`
@@ -77,6 +90,9 @@ export function hydrateChats(force = false): Promise<void> {
   if (hydrated && !force) return Promise.resolve();
 
   inflight = (async () => {
+    status = "loading";
+    emit();
+
     await importLegacyChats();
 
     const response = await fetch("/api/chats");
@@ -85,10 +101,13 @@ export function hydrateChats(force = false): Promise<void> {
     const payload = (await response.json()) as { chats: StoredChat[] };
     cache = payload.chats.slice(0, MAX_CHATS);
     hydrated = true;
+    status = "ready";
     emit();
   })()
     .catch((error: unknown) => {
       console.error("hydrateChats", error);
+      status = "error";
+      emit();
       toast.error("Could not load your conversations.");
     })
     .finally(() => {
