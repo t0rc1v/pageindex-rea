@@ -325,7 +325,7 @@ request.
 
 | Job | Needs secrets | Runs |
 | --- | --- | --- |
-| `verify` | no | `pnpm lint`, `tsc --noEmit`, `pnpm test`, `pnpm build` |
+| `verify` | no | `pnpm lint`, `tsc --noEmit`, `pnpm test`, migration checks, `pnpm build` |
 | `e2e` | yes | migrate, provision the sign-in account, build, Playwright |
 
 A third workflow, `migrate.yml`, is **manual only** (`workflow_dispatch`) and

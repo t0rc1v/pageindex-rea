@@ -37,6 +37,26 @@ jobs:
 
       - run: pnpm test
 
+      # `db:generate` diffs schema.ts against the committed snapshot, so it needs
+      # no database. If it writes a file, someone edited the schema without
+      # committing the migration — the one mistake that is invisible locally
+      # because a dev database is already migrated.
+      - name: Migrations match the schema
+        env:
+          DATABASE_URL_UNPOOLED: postgresql://ci:ci@127.0.0.1:5432/ci
+        run: |
+          pnpm db:generate
+          if [ -n "$(git status --porcelain lib/db/migrations)" ]; then
+            echo "::error::lib/db/schema.ts changed but no migration was committed. Run 'pnpm db:generate' and commit the SQL it writes."
+            git status --porcelain lib/db/migrations
+            exit 1
+          fi
+
+      - name: Migrations are consistent
+        env:
+          DATABASE_URL_UNPOOLED: postgresql://ci:ci@127.0.0.1:5432/ci
+        run: pnpm exec drizzle-kit check
+
       # No real credentials: `getDb()` is lazy, and Clerk only needs a
       # well-formed publishable key to prerender the sign-in route.
       - name: Build
