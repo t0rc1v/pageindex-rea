@@ -26,6 +26,22 @@ const nextConfig: NextConfig = {
   },
   cacheComponents: true,
   partialPrefetching: true,
+  /**
+   * The dev server allows `localhost` out of the box, but the e2e baseURL and
+   * anything that resolves the app by address use `127.0.0.1`. Without this the
+   * HMR socket is answered with a cross-origin block, so every page logs
+   * `net::ERR_INVALID_HTTP_RESPONSE` and edits need a manual reload.
+   */
+  allowedDevOrigins: ["127.0.0.1"],
+  /**
+   * `/` is a pure redirect. Doing it here instead of with `redirect()` inside a
+   * page keeps the segment out of the render tree: under Cache Components a
+   * thrown `NEXT_REDIRECT` during static-shell validation surfaces as
+   * "Could not validate `instant`" in the browser console on every visit.
+   */
+  async redirects() {
+    return [{ source: "/", destination: "/chat", permanent: false }];
+  },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
