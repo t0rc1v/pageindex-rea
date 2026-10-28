@@ -186,6 +186,9 @@ Every browser call is `POST /api/orpc/<router>/<proc>` with `{json: …}`, plus
 
 ## 4. Status against this clone
 
+Status as of the current build (revised 2026-10-29); §8, §9.10 and §9.11 record
+the work behind each ✔.
+
 Legend: **✔ parity** · **◐ partial** · **✗ missing**
 
 ### 4.1 Shell and navigation
@@ -195,31 +198,31 @@ Legend: **✔ parity** · **◐ partial** · **✗ missing**
 | Sidebar, icon rail, mobile drawer | ✔ | |
 | New chat / Documents | ✔ | |
 | **Explore** entry + public packs | ✗ | |
-| Recents with rename/delete | ✔ | localStorage vs server |
+| Recents with rename/delete | ✔ | server-backed, per tenant + author |
 | Recents **share** + shared indicator | ✗ | |
-| Account footer (avatar, plan, Upgrade) | ✗ | |
+| Account footer (avatar, plan, Upgrade) | ◐ | avatar, Account and Settings; no plan or Upgrade |
 | Usage meter (`%`, ring in rail mode) | ◐ | doc/page counts, no quota |
-| Dark shell + rounded app panel | ✗ | paper theme |
-| Settings hub (Workspace / Integrations / Other) | ✗ | flat settings page |
+| Dark shell + rounded app panel | ◐ | paper is the default; dark ships as a theme |
+| Settings hub (Workspace / Integrations / Other) | ◐ | one page with a sticky section nav |
 
 ### 4.2 Conversation
 
 | Feature | Clone | Note |
 | --- | --- | --- |
 | Chat + document beside it | ✔ | 430 px fixed panel |
-| Context card above the user bubble | ✗ | |
+| Context card above the user bubble | ✔ | `turn.docs` snapshot |
 | Blue user bubble | ◐ | black bubble |
-| Reasoning row (`Thought for Ns`) | ✗ | |
-| Tool rows: icon, chevron, shimmer | ◐ | 11 px flat line, spinner/✓ |
-| **Expanded tool result** (outline table / returned pages) | ✗ | |
-| **`View raw input and output`** | ✗ | |
+| Reasoning row (`Thought for Ns`) | ✔ | elapsed time, not a reasoning trace |
+| Tool rows: icon, chevron, shimmer | ✔ | |
+| **Expanded tool result** (outline table / returned pages) | ✔ | |
+| **`View raw input and output`** | ✔ | |
 | Citation chips | ✔ | ours adds number + `· block` |
-| **Sources** hairline + counts + grouping | ◐ | dashed chip strip |
-| **Copy / Download / Regenerate** + timestamp | ✗ | |
-| **Edit message → re-run** | ✗ | |
-| **Export answer .md / .docx / .pdf** | ✗ | |
-| Mermaid + table/image copy & download | ✗ | remark-gfm tables only |
-| Scroll-to-bottom affordance | ✗ | |
+| **Sources** hairline + counts + grouping | ✔ | |
+| **Copy / Download / Regenerate** + timestamp | ✔ | |
+| **Edit message → re-run** | ✔ | previous wording + answer kept behind `‹ 2/3 ›` |
+| **Export answer .md / .docx / .pdf** | ✔ | |
+| Mermaid + table/image copy & download | ✔ | |
+| Scroll-to-bottom affordance | ✔ | |
 | Stop generation | ✔ | |
 | Share chat / read-only view | ✗ | |
 
@@ -229,25 +232,25 @@ Legend: **✔ parity** · **◐ partial** · **✗ missing**
 | --- | --- | --- |
 | Hover citation card (320 px) | ✔ | |
 | Block text + page highlight | ✔ | bbox overlay |
-| `Page N of M` + block-type pill | ✗ | |
-| `Open page ↗` | ◐ | small button |
-| Resizable panel + **tabs per document** | ✗ | |
+| `Page N of M` + block-type pill | ✔ | |
+| `Open page ↗` | ✔ | |
+| Resizable panel + **tabs per document** | ✔ | |
 | **True PDF + determinate progress** | ✗ | page JPEG + OCR markdown |
-| **Mobile: full-height `Document Viewer` sheet** | ◐ | full-screen overlay, no title/desc |
-| `Document info`, `Add Page to Chat` | ✗ | |
+| **Mobile: full-height `Document Viewer` sheet** | ✔ | bottom sheet under `lg` |
+| `Document info`, `Add Page to Chat` | ✔ | |
 | Bulk `resolveCitations` server call | ◐ | per-block fetch |
 
 ### 4.4 Platform
 
 | Feature | Clone | Note |
 | --- | --- | --- |
-| Server-side chats (cross-device) | ✗ | localStorage |
-| Auth (Google/GitHub/magic link) | ✗ | single-user key |
+| Server-side chats (cross-device) | ✔ | `chats` / `chat_turns` / `chat_runs` in Postgres — §9.11 |
+| Auth | ◐ | Clerk: gated pages, personal space + Organizations; sign-in methods are Clerk instance config |
 | Page + query metering, warnings | ✗ | |
 | Plans, Stripe, invoices, seats, team space | ✗ | |
-| **Answer export (md/docx/pdf)** | ✗ | |
+| **Answer export (md/docx/pdf)** | ✔ | client-side `docx` + jsPDF, Markdown export |
 | **MCP server + Connect UI (Claude/Cursor)** | ◐ | we consume PageIndex MCP; we don't expose one |
-| Ingestion formats | ✗ | PDF only (no CSV/MD/TXT/ZIP) |
+| Ingestion formats | ✔ | PDF, Word, PowerPoint, CSV, Markdown, TXT and `.zip` bundles |
 | `file/resolveCitations` bulk resolution | ✗ | |
 | Privacy toggle + delete-all-files | ✗ | |
 | Share eligibility / dependency-scoped shares | ✗ | |
@@ -255,6 +258,11 @@ Legend: **✔ parity** · **◐ partial** · **✗ missing**
 ---
 
 ## 5. Gaps ranked
+
+Ranked at the §8 build. Delivered since, per §8 and §9.10: **1, 2, 4, 6, 7, 8,
+11**; partial: **3** (tabs and resize, but page images not PDF), **9**, **10**,
+**14**; open: **5** (share), **12** (billing — auth and server chats shipped,
+§9.11), **13** (MCP exposure).
 
 **P0 — reads as a different product without these**
 
@@ -277,7 +285,8 @@ Legend: **✔ parity** · **◐ partial** · **✗ missing**
 
 **P2 — commercial**
 
-12. Auth, server-side chats, `/subscription` (Pro $20, Team $150/5 seats), Stripe.
+12. Billing: `/subscription` (Pro $20, Team $150/5 seats), Stripe. *(Auth and
+    server-side chats have shipped — §9.11.)*
 13. **MCP exposure** (`/mcp` + `/oauth/authorize` + Connect UI) — we are a consumer
     of PageIndex MCP, the official app is a *provider*.
 14. Rate limits, quota warnings, delete-all-files.
@@ -304,6 +313,10 @@ Legend: **✔ parity** · **◐ partial** · **✗ missing**
 **Do first:** (1) message toolbar + export, (2) tool-step expansion + raw I/O,
 (3) Sources rewrite, (4) citation card, (5) panel tabs/resize/PDF, (6) composer.
 Then ingestion breadth and the account/usage surfaces.
+
+*(1), (2), (3), (4) and (6) and the resize/tabs half of (5) have shipped — §8 and
+§9.10. What remains from this list is PDF fidelity, which the Cloud API withholds
+(§9.9).)*
 
 ---
 
@@ -368,11 +381,14 @@ live Cloud API.
 
 ---
 
----
-
 ## 9. Remaining parity gaps
 
-State after the §8 build: the **conversation surface** is close. What is left sits
+These tables record the backlog **as it stood after the §8 build**, kept because
+the detail and the blocker classes are still right. §9.10 and §9.11 list what has
+landed since; where a row below still says a feature is missing, check those two
+sections before acting on it.
+
+At that point the **conversation surface** was close. What was left sat
 in the product shell around it, the backend that shell assumes, and one
 deliberate visual divergence. Every row names what blocks it, because the three
 classes need very different work:
@@ -447,9 +463,9 @@ largest remaining delta.
 
 | Gap | Detail | Blocked by |
 | --- | --- | --- |
-| **Server-side conversations** | Their `/chat?session=<id>` is a record (`chat/listSessions`, `chat/getSession`). Ours is localStorage: one browser, ~5 MB, no cross-device, lost on clear. | **[svc]** |
+| **Server-side conversations** | Their `/chat?session=<id>` is a record (`chat/listSessions`, `chat/getSession`). Delivered in §9.11: `chats` / `chat_turns` / `chat_runs` in Postgres, scoped to tenant + author, reachable from any browser. | — |
 | **Sharing** | `/share/chat/<id>`, `/share/doc/<id>`, `/share/folder/<id>`, read-only views, access toggles (chat/preview/download), revocation, `Share Chat` dialog with `canShare` / `dependencyCount`. | **[svc]** |
-| Auth | Google/GitHub/magic-link/password, `/magic-link`, `/forgot-password`, `/verification`, `/oauth/authorize`. | excluded by request |
+| Auth | Google/GitHub/magic-link/password, `/magic-link`, `/forgot-password`, `/verification`, `/oauth/authorize`. Delivered in §9.11 as Clerk-hosted flows; the bespoke `/magic-link` and `/verification` screens are Clerk's, not ours. | — |
 | Billing | Pro **$20/mo**, Team **$150/mo for 5 seats**, monthly/annual switch, proration, Stripe portal, invoices, page top-ups. | excluded by request |
 | Quota + rate limits | Page and query budgets, `shouldShowWarning`, upstream 429 handling with retry. We surface upstream errors but never meter, limit or retry. | **[svc]** metering / **[ui]** retry |
 | **MCP server** | `https://app.pageindex.ai/mcp` returns `401 invalid_token` without OAuth; their settings ship Claude/Cursor installers. We are an MCP *client* only. | **[svc]** |
@@ -463,8 +479,8 @@ largest remaining delta.
 
 | Gap | Detail |
 | --- | --- |
-| Chats | `localStorage` key `pageindex-reader/chats/v1`, capped at 60. No schema-version migration, no export/import, no backup. |
-| Local state | Panel width in localStorage; citation previews cached 30 min; page OCR cached ~5 min server-side. |
+| Chats | Postgres (`chats`, `chat_turns`, `chat_runs`), keyed to `(tenant_id, created_by)`; `listChats` returns the newest 60. Conversations left in `localStorage` by earlier builds are imported once, on the first authenticated load, under their existing ids. |
+| Local state | Panel width and per-document last page in localStorage; appearance (theme / transcript / density) per browser; citation previews cached 30 min; page OCR cached ~5 min server-side. |
 | Usage counters | None — no page/query accounting exists anywhere in this app. |
 | Theirs | Relational records for chats, shares, saved collections, memberships, usage and subscriptions. |
 
@@ -509,8 +525,8 @@ Complete list, superseding the earlier "six things" summary.
 
 ### 9.8 Backlog B — needs a service
 
-Server-side chats · sharing (chat/doc/folder + access toggles) · Explore, follow
-and saved collections · Following + Shared-with-me · auth · usage metering and
+Server-side **sharing** (chat/doc/folder + access toggles) · Explore, follow
+and saved collections · Following + Shared-with-me · usage metering and
 quotas · billing, plans, seats and team space · MCP server exposure · real
 feedback capture · observability backend.
 
@@ -583,3 +599,25 @@ withholds. Line references point at the commit that added it.
 
 **Not delivered:** nothing in this batch. Playwright runs against the installed
 Chrome (`channel: "chrome"`) so no browser download is required.
+
+---
+
+## 9.11 Delivered — accounts, tenancy, server-side conversations
+
+Shipped after §8 and §9.10. The rows in §4.1, §4.4, §5, §9.5, §9.6 and §9.8 that
+said "localStorage" or "single-user key" are corrected here as well; §1–§3 are
+unchanged, because they describe `app.pageindex.ai`.
+
+| Piece | What shipped | Where |
+| --- | --- | --- |
+| Accounts | Clerk gates every page and Route Handler. `auth.protect()` runs inside each handler rather than a URL matcher, so Server Functions and paths Next normalizes differently are covered too. | `proxy.ts`, `app/(shell)/*/page.tsx` |
+| Tenancy | `tenants` holds both personal spaces (`clerk_org_id` null) and Clerk Organizations. `requireTenant()` is the only place a request becomes a tenant — `tenantId = orgId` inside an org, the caller's personal tenant otherwise — so every query filters one column. | `lib/server/tenant.ts`, `lib/db/schema.ts` |
+| Sync | `POST /api/webhooks/clerk` mirrors `user.*` and `organization.*` into `users` / `tenants` (svix signature; 503 without a signing secret). Lazy creation in `requireTenant` means a first request never waits for a delivery, and both paths are race-safe. | `app/api/webhooks/clerk/route.ts`, `lib/server/clerk-sync.ts` |
+| Ownership | `documents` is this app's registry: `(tenant_id, pageindex_id)` unique, plus the workspace display name, folder and status. The Cloud API is account-global, so this table is what makes "is this document yours?" answerable at all. | `app/api/docs/*` |
+| Conversations | `chats` (tenant + author, scope docs as JSON), `chat_turns` (ordered, role), `chat_runs` (one answer variant per run, so regenerate and edit-and-resend both keep history). Recents reads newest-first per author; delete-all is rate-limited. | `lib/server/chats.ts`, `lib/chat-store.ts` |
+| Legacy import | Chats written to `localStorage` before this change are uploaded once under their existing ids, then the local copy is dropped. | `lib/chat-store.ts` |
+
+What this changes about the comparison: conversations are now a **record**, like
+theirs, so cross-device and "lost on clear" stop being caveats. Still absent from
+this surface, unchanged from §9.5 and §9.8: sharing (chat/doc/folder + access
+toggles), usage metering and quotas, billing/plans/seats, and team roles.

@@ -96,9 +96,10 @@ documents open beside a conversation rather than as a separate primary page.
 
 **Design consequence here.** This app now has a persistent sidebar (New chat /
 Documents / Recents / Settings / usage), chat as the default surface, and a
-document **artifact panel** that opens from a citation. Chats are stored in
-localStorage because the Cloud API exposes no conversation resource; the official
-app stores them server-side behind its own auth.
+document **artifact panel** that opens from a citation. The Cloud API exposes no
+conversation resource, so conversations live in this app's own Postgres
+(`chats` / `chat_turns` / `chat_runs`, scoped to tenant and author) behind Clerk
+auth — the same shape the official app uses, minus sharing.
 
 **Verified against the live app (2026-10-23, Free plan).** These supersede the
 bundle-only inferences above:
@@ -316,7 +317,7 @@ Two wires therefore exist for the same product surface, and the app ships both:
 | Boundary-aware block assembly | Citation tags can straddle prose-block boundaries; dropping a block blindly slices tags and leaks `;page=…;block=…>`. |
 | Page windowing + short-lived server cache | `type=ocr` returns the whole document; a 584-page book must not be re-sent per click. |
 | Citation preview card + artifact panel | Follows the user's description of the official app: hover/tap → details + Open page → document beside the chat. |
-| Chats in localStorage | The Cloud API has no conversation resource; the official app's storage is behind its own auth. |
+| Chats in our own Postgres | The Cloud API has no conversation resource and the official app's storage is behind its own auth, so conversations are recorded here instead — scoped to tenant and author, with turns and answer runs as rows. |
 | `beta_headers=["block_reference"]` on upload (configurable) | Block ids/bboxes for block-level citations. Still the SDK's example, not a verified-stable contract. |
 
 ---
