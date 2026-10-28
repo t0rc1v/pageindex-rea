@@ -25,6 +25,12 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # `PageProps`/`RouteContext` live in generated route types, so a clean
+      # checkout cannot be typechecked before they exist. Typegen is the cheap
+      # half of a build; without it `tsc` fails on every dynamic route.
+      - name: Generate route types
+        run: pnpm exec next typegen
+
       - run: pnpm lint
 
       - run: pnpm exec tsc --noEmit
