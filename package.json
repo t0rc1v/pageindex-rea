@@ -15,7 +15,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "db:claim": "node scripts/claim-documents.mjs"
+    "db:claim": "node scripts/claim-documents.mjs",
+    "e2e:user": "node scripts/ensure-e2e-user.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.99",

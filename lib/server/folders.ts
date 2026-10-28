@@ -1,6 +1,6 @@
 import "server-only";
 
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
 import { documents, folders } from "@/lib/db/schema";
@@ -130,4 +130,17 @@ export function toFolderResponse(folder: FolderRecord) {
     file_count: folder.fileCount,
     children_count: folder.childrenCount,
   };
+}
+
+/**
+ * Delete a folder. Children cascade; documents inside are unfiled rather than
+ * deleted — losing a folder must never lose a document.
+ */
+export async function deleteFolder(tenantId: string, folderId: string): Promise<boolean> {
+  const rows = await getDb()
+    .delete(folders)
+    .where(and(eq(folders.tenantId, tenantId), eq(folders.id, folderId)))
+    .returning({ id: folders.id });
+
+  return rows.length > 0;
 }

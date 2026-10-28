@@ -147,6 +147,7 @@ pnpm db:migrate    # apply pending migrations (direct connection)
 pnpm db:studio     # browse the data
 pnpm db:push       # dev-only shortcut: sync schema without a migration file
 pnpm db:claim      # attach pre-existing upstream documents to a tenant
+pnpm e2e:user      # create the e2e sign-in account if it does not exist
 ```
 
 Migrations go through `DATABASE_URL_UNPOOLED`. DDL through a transaction-mode
@@ -170,6 +171,8 @@ multi-statement writes atomic, since that driver has no interactive transactions
 /api/me               session probe: { userId, orgId, orgRole, orgSlug }
 /api/chats            GET  Recents · DELETE all of the caller's conversations
 /api/chats/[chatId]   GET full conversation · PUT upsert · PATCH rename · DELETE
+/api/folders          GET list · POST create — workspace folders in Postgres
+/api/folders/[id]     DELETE — unfiles its documents, removes nested folders
 ```
 
 ## Architecture
@@ -253,20 +256,64 @@ pnpm test:e2e    # playwright against the mock API, using your installed Chrome
 The e2e suite starts the mock and a production server on port 3100 itself; it
 needs no PageIndex key and no browser download.
 
-It does need a Clerk user, because every route is gated. The `setup` project
-signs one in once and writes `e2e/.auth/user.json` (gitignored) for the specs to
+It does need a Clerk user, because every route is gated. `pnpm e2e:user` makes
+sure that account exists (idempotent; it uses the Backend API with
+`CLERK_SECRET_KEY`, so no Dashboard visit is needed). The `setup` project then
+signs it in once and writes `e2e/.auth/user.json` (gitignored) for the specs to
 reuse, so tests never walk through a sign-in form:
 
 ```bash
-clerk users create --email pageindex-e2e+clerk_test@example.com \
-  --password "$(openssl rand -hex 10)Aa1" --yes      # once per development instance
-pnpm test:e2e                                       # E2E_CLERK_USER_EMAIL overrides the default
+pnpm build        # the suite serves .next
+pnpm e2e:user     # create the sign-in account if this instance does not have it
+pnpm test:e2e     # E2E_CLERK_USER_EMAIL overrides the default address
 ```
 
 `playwright.config.ts` loads `.env.local` through `@next/env` (the loader Next
 uses) so `clerkSetup()` sees `CLERK_SECRET_KEY`; `clerk.signIn({ emailAddress })`
 then mints a sign-in token over the Backend API and spends it as a ticket — no
-password, no emailed code, nothing that bot protection can rate-limit.
+password, no emailed code, nothing that bot protection can rate-limit. The setup
+fails immediately, naming what is missing, when `CLERK_SECRET_KEY`,
+`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` or `DATABASE_URL` is absent.
+
+**What is stubbed, and what is not.** PageIndex is a local mock
+(`scripts/mock-pageindex-api.mjs`) and no model is ever called — `OPENAI_API_KEY`
+is blanked for the suite, which forces the managed lane. Sign-in and the database
+are **real**: a Clerk development instance and your Postgres. Fixtures make that
+repeatable (the setup clears the test user's conversations, registers its
+document through the real upload path and restores the display name; the folder
+test deletes the folder it created), but the dependency is real.
+
+There is deliberately **no auth bypass** for tests. A flag that made
+`auth.protect()` return a fixture identity would have to work in a production
+build — the suite runs `next start` — and that is an unacceptable footgun for a
+temporary convenience. A secretless suite needs a test-only identity provider
+behind a build-time switch; that is a product decision, not a test tweak.
+
+---
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs two jobs on every push to `main` and every pull
+request.
+
+| Job | Needs secrets | Runs |
+| --- | --- | --- |
+| `verify` | no | `pnpm lint`, `tsc --noEmit`, `pnpm test`, `pnpm build` |
+| `e2e` | yes | migrate, provision the sign-in account, build, Playwright |
+
+`verify` is secretless on purpose: `getDb()` is lazy and Clerk only needs a
+well-formed publishable key to prerender the sign-in route, so the job builds with
+placeholder values.
+
+`e2e` is skipped — with a notice, not a failure — unless these repository secrets
+exist: `CLERK_SECRET_KEY`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `DATABASE_URL`,
+`DATABASE_URL_UNPOOLED`. Point them at a **CI branch**, not the database you
+develop against: the suite deletes the test user's conversations and mutates its
+document registry, so a parallel local run would collide.
+
+`E2E_CLERK_USER_EMAIL` can be set as a repository *variable* to override the
+default address. `PLAYWRIGHT_CHANNEL` selects the browser: CI downloads Chromium,
+a workstation reuses installed Chrome.
 
 ---
 
@@ -295,6 +342,8 @@ lib/
   server/tenant.ts             session → tenant (personal or organization)
   server/pages-cache.ts        bounded page-content cache
 drizzle.config.ts              drizzle-kit (loads .env.local via @next/env)
+.github/workflows/ci.yml       verify (secretless) + e2e (guarded) jobs
+scripts/ensure-e2e-user.mjs    idempotent test-account provisioning
 docs/REVERSE-ENGINEERING.md    evidence, inferences, open questions
 scripts/mock-pageindex-api.mjs
 ```

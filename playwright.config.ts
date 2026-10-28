@@ -12,6 +12,13 @@ loadEnvConfig(process.cwd());
 const AUTH_STATE = "e2e/.auth/user.json";
 
 /**
+ * CI downloads Playwright's Chromium; a workstation uses the installed Chrome.
+ * Both projects must agree or the setup signs in under one browser and the
+ * specs run under another (which has no session).
+ */
+const CHANNEL = process.env.PLAYWRIGHT_CHANNEL ?? "chrome";
+
+/**
  * E2E runs against the offline mock API (`pnpm mock:api`), so it needs no key
  * and no network. It reuses the installed Chrome (`channel: "chrome"`) instead
  * of downloading a browser.
@@ -37,11 +44,11 @@ export default defineConfig({
       testMatch: /global\.setup\.ts/,
       // Same system Chrome as the specs: the setup project launches a browser
       // too, and the bundled Chromium was never downloaded by design.
-      use: { ...devices["Desktop Chrome"], channel: "chrome" },
+      use: { ...devices["Desktop Chrome"], channel: CHANNEL },
     },
     {
       name: "chrome",
-      use: { ...devices["Desktop Chrome"], channel: "chrome", storageState: AUTH_STATE },
+      use: { ...devices["Desktop Chrome"], channel: CHANNEL, storageState: AUTH_STATE },
       dependencies: ["setup"],
       testIgnore: /global\.setup\.ts/,
     },

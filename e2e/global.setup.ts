@@ -19,6 +19,29 @@ const USER_EMAIL = process.env.E2E_CLERK_USER_EMAIL ?? "pageindex-e2e+clerk_test
 const STATE_PATH = "e2e/.auth/user.json";
 
 /**
+ * These tests sign in for real and write to a real database, so they cannot run
+ * without credentials. Fail here, with the list of what is missing, rather than
+ * timing out 90 seconds later inside a sign-in that could never succeed.
+ */
+const missing = [
+  ["CLERK_SECRET_KEY", process.env.CLERK_SECRET_KEY],
+  [
+    "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ?? process.env.CLERK_PUBLISHABLE_KEY,
+  ],
+  ["DATABASE_URL", process.env.DATABASE_URL],
+]
+  .filter(([, value]) => !value || !String(value).trim())
+  .map(([name]) => name);
+
+if (missing.length > 0) {
+  throw new Error(
+    `E2E needs ${missing.join(", ")}. Set them in .env.local (or the CI environment) and ` +
+      "run `pnpm build` first. See the Tests section of the README.",
+  );
+}
+
+/**
  * A minimal, structurally valid PDF. The mock accepts anything with a `%PDF-`
  * header; using the real upload endpoint (rather than seeding Postgres) is what
  * makes this suite exercise registration, the ownership registry and the

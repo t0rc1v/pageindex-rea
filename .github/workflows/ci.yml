@@ -1,0 +1,116 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Lint, types, unit, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm lint
+
+      - run: pnpm exec tsc --noEmit
+
+      - run: pnpm test
+
+      # No real credentials: `getDb()` is lazy, and Clerk only needs a
+      # well-formed publishable key to prerender the sign-in route.
+      - name: Build
+        env:
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_bG9jYWxob3N0JA==
+          CLERK_SECRET_KEY: sk_test_ci_placeholder
+          DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/ci
+          DATABASE_URL_UNPOOLED: postgresql://ci:ci@127.0.0.1:5432/ci
+        run: pnpm build
+
+  e2e:
+    name: End-to-end
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DATABASE_URL_UNPOOLED: ${{ secrets.DATABASE_URL_UNPOOLED }}
+      E2E_CLERK_USER_EMAIL: ${{ vars.E2E_CLERK_USER_EMAIL }}
+      # CI downloads Playwright's browser; a workstation reuses installed Chrome.
+      PLAYWRIGHT_CHANNEL: chromium
+    steps:
+      - uses: actions/checkout@v4
+
+      # The suite signs in through a real Clerk instance and writes to a real
+      # Postgres, so it cannot run without credentials. Report that once, and
+      # skip instead of failing every pull request from a fork.
+      - name: Check prerequisites
+        id: guard
+        run: |
+          missing=""
+          [ -z "$CLERK_SECRET_KEY" ] && missing="$missing CLERK_SECRET_KEY"
+          [ -z "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" ] && missing="$missing NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"
+          [ -z "$DATABASE_URL" ] && missing="$missing DATABASE_URL"
+          [ -z "$DATABASE_URL_UNPOOLED" ] && missing="$missing DATABASE_URL_UNPOOLED"
+          if [ -n "$missing" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping e2e — missing repository secrets:$missing"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.guard.outputs.enabled == 'true'
+        uses: pnpm/action-setup@v4
+
+      - if: steps.guard.outputs.enabled == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - if: steps.guard.outputs.enabled == 'true'
+        run: pnpm install --frozen-lockfile
+
+      # The suite asserts against the current schema, so migrate first.
+      - if: steps.guard.outputs.enabled == 'true'
+        name: Migrate
+        run: pnpm db:migrate
+
+      - if: steps.guard.outputs.enabled == 'true'
+        name: Provision the sign-in account
+        run: pnpm e2e:user
+
+      - if: steps.guard.outputs.enabled == 'true'
+        run: pnpm exec playwright install --with-deps chromium
+
+      - if: steps.guard.outputs.enabled == 'true'
+        run: pnpm build
+
+      - if: steps.guard.outputs.enabled == 'true'
+        name: Playwright
+        run: pnpm test:e2e
+
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 7

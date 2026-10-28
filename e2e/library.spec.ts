@@ -1,3 +1,5 @@
+import { type Page } from "@playwright/test";
+
 import { expect, test } from "./fixtures";
 
 /**
@@ -24,21 +26,14 @@ test.describe("workspace folders", () => {
     expect(folder.name).toBe(name);
     expect(folder.file_count).toBe(0);
 
-    const listed = await page.request.get("/api/folders");
-    const { folders } = (await listed.json()) as { folders: Array<{ id: string; name: string }> };
-    expect(folders.map((item) => item.id)).toContain(folder.id);
-
-    // Empty folder ⇒ empty page, and the unfiled scope still holds the document
-    // the setup registered.
-    const inFolder = await page.request.get(`/api/docs?folderId=${folder.id}`);
-    const folderBody = (await inFolder.json()) as { total: number };
-    expect(folderBody.total).toBe(0);
-
-    const unfiled = await page.request.get("/api/docs?folderId=root");
-    const unfiledBody = (await unfiled.json()) as { documents: Array<{ name: string }> };
-    expect(unfiledBody.documents.map((document) => document.name)).toContain(
-      "Annual Report 2024.pdf",
-    );
+    try {
+      await assertFolderIsolation(page, folder);
+    } finally {
+      // Leave the workspace as it was found: the folder id is unique per run, but
+      // the row would otherwise accumulate in a long-lived dev database.
+      const removed = await page.request.delete(`/api/folders/${folder.id}`);
+      expect(removed.ok(), await removed.text()).toBeTruthy();
+    }
   });
 
   test("uploading into a folder this workspace does not own is refused", async ({ page }) => {
@@ -52,6 +47,16 @@ test.describe("workspace folders", () => {
     expect(response.status()).toBe(404);
     const body = (await response.json()) as { error?: string };
     expect(body.error).toMatch(/folder does not exist/i);
+  });
+
+  test("deleting an unknown folder answers 404", async ({ page }) => {
+    // A well-formed id that belongs to nobody: the route must not leak whether it
+    // exists. (Tenant scoping is the same check that answers 404 for another
+    // workspace's folder.)
+    const removed = await page.request.delete(
+      "/api/folders/00000000-0000-0000-0000-000000000000",
+    );
+    expect(removed.status()).toBe(404);
   });
 
   test("the library does not page through upstream documents", async ({ page }) => {
@@ -68,11 +73,24 @@ test.describe("workspace folders", () => {
   });
 });
 
-/**
- * Renaming is local. The display name is what the workspace sees everywhere —
- * library, citations, sources — while PageIndex keeps the name it was uploaded
- * with, because that name is shared with every other tenant.
- */
+async function assertFolderIsolation(page: Page, folder: { id: string }) {
+  const listed = await page.request.get("/api/folders");
+  const { folders } = (await listed.json()) as { folders: Array<{ id: string; name: string }> };
+  expect(folders.map((item) => item.id)).toContain(folder.id);
+
+  // Empty folder ⇒ empty page, and the unfiled scope still holds the document
+  // the setup registered.
+  const inFolder = await page.request.get(`/api/docs?folderId=${folder.id}`);
+  const folderBody = (await inFolder.json()) as { total: number };
+  expect(folderBody.total).toBe(0);
+
+  const unfiled = await page.request.get("/api/docs?folderId=root");
+  const unfiledBody = (await unfiled.json()) as { documents: Array<{ name: string }> };
+  expect(unfiledBody.documents.map((document) => document.name)).toContain(
+    "Annual Report 2024.pdf",
+  );
+}
+
 test.describe("renaming", () => {
   const RENAMED = "Board Pack 2025.pdf";
   const UPSTREAM = "Annual Report 2024.pdf";
