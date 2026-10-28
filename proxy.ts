@@ -105,7 +105,17 @@ const contentSecurityPolicy = directives
   .map(([directive, values]) => `${directive} ${values.join(" ")}`)
   .join("; ");
 
-const withClerk = clerkMiddleware();
+/**
+ * The sign-in and sign-up paths belong to this app, so they are declared here
+ * instead of being read from `NEXT_PUBLIC_CLERK_*`. With the URL unset, a Clerk
+ * development instance answers with its Account Portal on a *second* origin
+ * (`https://<slug>.accounts.dev`, from the instance's `display_config`), which
+ * the CSP below can never allow because it is discovered at runtime. CI runs
+ * without `.env.local`, so leaving it to the environment also made signed-out
+ * redirects leave the app there — and clerk-js fetch across origins when a
+ * token expired.
+ */
+const withClerk = clerkMiddleware({ signInUrl: "/sign-in", signUpUrl: "/sign-up" });
 
 export default async function proxy(request: NextRequest, event: NextFetchEvent) {
   const response = (await withClerk(request, event)) ?? NextResponse.next();
