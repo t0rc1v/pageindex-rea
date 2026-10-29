@@ -109,7 +109,11 @@ function sleep(ms) {
 const chunks = (value) => value.match(/[\s\S]{1,18}/g) ?? [];
 
 async function chatStream(req, res) {
-  JSON.parse(await readBody(req)); // validate the request is JSON
+  const body = JSON.parse(await readBody(req)); // also validates the request is JSON
+  // A caller can ask for the citations frame to land late. That is the window in
+  // which a citation is already on screen but has no document id yet, which a
+  // fast click (or a slow answer) hits in a real browser.
+  const delayedCitations = /cite later/i.test(JSON.stringify(body));
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
@@ -160,6 +164,7 @@ async function chatStream(req, res) {
   }
   send({ choices: [{ index: 0, delta: {}, finish_reason: "end_turn" }] });
   // The citations frame lands AFTER finish_reason — the trap clients fall into.
+  if (delayedCitations) await sleep(4000);
   send({
     object: "chat.completion.citations",
     citations: [
