@@ -16,6 +16,7 @@ import {
   type TurnTimings,
 } from "@/lib/chat-store";
 import type { ChatStreamEvent, Citation } from "@/lib/pageindex/types";
+import type { PageContext } from "@/lib/page-context";
 import { stripCitations } from "@/components/markdown";
 
 export interface ChatRun {
@@ -48,14 +49,6 @@ export interface ChatTurn {
 export interface ChatDoc {
   id: string;
   name: string;
-}
-
-/** A page pinned into the next question's context ("Add page to chat"). */
-export interface PageContext {
-  docId: string;
-  docName: string;
-  page: number;
-  text: string;
 }
 
 function emptyRun(): ChatRun {
@@ -295,21 +288,34 @@ export function useChat(options: {
     createdAt.current = null;
   }, [stop]);
 
+  /**
+   * Pin a page to the next question.
+   *
+   * Synchronous on purpose: a caller that pins and then sends in the same tick
+   * (the reader does) must not race the state update, so the ref is written
+   * first and the render follows.
+   */
   const addContext = useCallback((entry: PageContext) => {
-    setContext((previous) =>
-      previous.some((item) => item.docId === entry.docId && item.page === entry.page)
-        ? previous
-        : [...previous, entry],
-    );
+    const current = contextRef.current;
+    if (current.some((item) => item.docId === entry.docId && item.page === entry.page)) return;
+
+    const next = [...current, entry];
+    contextRef.current = next;
+    setContext(next);
   }, []);
 
   const removeContext = useCallback((docId: string, page: number) => {
-    setContext((previous) =>
-      previous.filter((item) => !(item.docId === docId && item.page === page)),
+    const next = contextRef.current.filter(
+      (item) => !(item.docId === docId && item.page === page),
     );
+    contextRef.current = next;
+    setContext(next);
   }, []);
 
-  const clearContext = useCallback(() => setContext([]), []);
+  const clearContext = useCallback(() => {
+    contextRef.current = [];
+    setContext([]);
+  }, []);
 
   /** Stream one assistant run into `assistant.id` at `runIndex`. */
   const startRun = useCallback(

@@ -100,6 +100,37 @@ test.describe("document chat", () => {
     await expect(panel).toBeVisible();
   });
 
+  test("the page on screen is pinned, and a removed pin stays removed", async ({ page }) => {
+    await page.goto("/doc/pi-mock-1?page=2");
+    await page.getByLabel("Ask about this document").fill("What is on this page?");
+    await page.getByLabel("Send question").click();
+
+    const panel = page.getByRole("complementary", { name: "Document chat" });
+    await expect(panel.getByLabel("Remove page 2 from context")).toBeVisible();
+    await expect(panel.getByRole("button", { name: /^Citation 1:/ })).toBeVisible({
+      timeout: 30_000,
+    });
+
+    // Removing the chip means "not this page", not "until the next question".
+    await panel.getByLabel("Remove page 2 from context").click();
+    await expect(panel.getByLabel("Remove page 2 from context")).toHaveCount(0);
+
+    await panel.getByLabel("Ask a follow-up").fill("Anything else here?");
+    await panel.getByLabel("Send message").click();
+    await expect(panel.getByRole("button", { name: /^Citation 1:/ })).toHaveCount(2, {
+      timeout: 30_000,
+    });
+    await expect(panel.getByLabel("Remove page 2 from context")).toHaveCount(0);
+
+    // Turning the page retracts that, and the pin follows the reader.
+    await page.getByLabel("Next page").click();
+    await panel.getByLabel("Ask a follow-up").fill("And this page?");
+    await panel.getByLabel("Send message").click();
+    await expect(panel.getByLabel("Remove page 3 from context")).toBeVisible({
+      timeout: 15_000,
+    });
+  });
+
   test("the chat menu lists, renames and deletes this document's chats", async ({ page }) => {
     const question = "Keep this chat in the menu.";
     const panel = await askInReader(page, question);

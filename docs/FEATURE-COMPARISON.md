@@ -640,6 +640,7 @@ citation travels is inverted.
 | Panel | Title + chat switcher, transcript, and its own composer. Stop, regenerate, edit, branch and feedback come from the shared transcript rather than a second implementation. Docked ≥1280 px, right-hand sheet 768–1279, bottom sheet under 768. | `doc-chat-panel.tsx`, `chat-transcript.tsx` |
 | Chat list | Recency-ordered, new / rename / delete, count badge; the same control renders in the reader header and in the panel header, so switching conversations never means going back first. | `doc-chat-menu.tsx` |
 | Citation direction | Chip → preview → `Open page ↗` turns the reader under the panel. Below 1280 px the panel closes first, or it would cover the page it just opened. A citation from another document opens that document's reader at its page. | `components/doc-view.tsx` |
+| Page pinning | Every question asked from the reader attaches the page on screen as an already-open page. Additive, not a filter — the document stays in scope, so answers can still cite anywhere. A new page replaces the previous automatic pin, and removing the chip retracts it until the reader turns the page. | `lib/page-context.ts`, `doc-chat-panel.tsx` |
 | Address bar | `?chat=` names the open conversation; `page` and `block` keep working on the same URL, and each writer preserves the others' parameters. | `use-doc-chat.ts` |
 | Storage | `chats.origin_doc_id` marks where a conversation was born — the PageIndex id, the same space `scopeDocs[].id` uses. Recents and a document's list are disjoint, and origin is written once: a later save cannot move a chat between them. | `lib/db/schema.ts`, `lib/server/chats.ts`, `lib/chat-store.ts` |
 
@@ -654,6 +655,3 @@ Deliberately not built, and why:
 - **Resizable panel.** 420 px reads well, and the page renders that want width are
   in the `/chat` document panel. A drag handle would also reopen the "does tree +
   page + panel still fit at 1280 px" question mid-drag, for a cosmetic control.
-- **Pinning the page you are reading into the question.** `useChat` already
-  carries `context` / `addContext` (the `/chat` *Add Page to Chat* path) and the
-  reader does not use it yet. That is a product addition, queued on its own.

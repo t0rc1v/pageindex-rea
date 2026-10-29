@@ -1,10 +1,11 @@
 "use client";
 
-import { ArrowUp, MessageSquare, Square, X } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { ArrowUp, MessageSquare, Paperclip, Square, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import type { StoredChat } from "@/lib/chat-types";
 import type { Citation } from "@/lib/pageindex/types";
+import { fetchPageContext } from "@/lib/page-context";
 import { ChatTranscript } from "@/components/chat/chat-transcript";
 import { useChat } from "@/components/chat/use-chat";
 import { useComposer } from "@/components/chat/use-composer";
@@ -36,6 +37,7 @@ export function DocChatPanel({
   docId,
   docName,
   chatId,
+  page,
   pending,
   onPendingSent,
   chats,
@@ -50,6 +52,8 @@ export function DocChatPanel({
   docId: string;
   docName: string;
   chatId: string;
+  /** The page on screen, pinned into every question asked from here. */
+  page: number;
   pending: PendingMessage | null;
   onPendingSent: () => void;
   chats: StoredChat[];
@@ -63,8 +67,53 @@ export function DocChatPanel({
 }) {
   // Stable identity: `useChat` refetches when `initialDocs` changes, and a fresh
   // literal every render would be an infinite load loop.
+  // Stable identity: `useChat` refetches when `initialDocs` changes, and a fresh
+  // literal every render would be an infinite load loop.
   const initialDocs = useMemo(() => [{ id: docId, name: docName }], [docId, docName]);
   const chat = useChat({ chatId, initialDocs, originDocId: docId });
+
+  const { addContext, removeContext, send } = chat;
+  const fired = useRef<string | null>(null);
+  /** The one page this panel pinned last, so a new page replaces it. */
+  const autoPin = useRef<{ docId: string; page: number } | null>(null);
+  /** A page the reader removed by hand: no second automatic pin until they move. */
+  const skipPin = useRef<{ docId: string; page: number } | null>(null);
+
+  /**
+   * Pin the page on screen into the question being asked.
+   *
+   * Additive, never a filter: the request still scopes the whole document, so
+   * the model can walk the tree and cite other pages. The pin saves a round trip
+   * and makes "this table" mean the table in front of the reader.
+   */
+  const pinPage = useCallback(async () => {
+    // Removing the chip means "not this page"; turning the page retracts that.
+    if (skipPin.current && !(skipPin.current.docId === docId && skipPin.current.page === page)) {
+      skipPin.current = null;
+    }
+    if (skipPin.current) return;
+
+    const entry = await fetchPageContext({ docId, docName, page });
+
+    const previous = autoPin.current;
+    if (previous && !(previous.docId === docId && previous.page === page)) {
+      removeContext(previous.docId, previous.page);
+    }
+
+    addContext(entry);
+    autoPin.current = { docId, page };
+  }, [addContext, removeContext, docId, docName, page]);
+
+  /** Ask, with the current page attached. A failed pin never blocks the question. */
+  const ask = useCallback(
+    (text: string) => {
+      void (async () => {
+        await pinPage().catch(() => undefined);
+        send(text);
+      })();
+    },
+    [pinPage, send],
+  );
 
   const {
     value: draft,
@@ -73,10 +122,9 @@ export function DocChatPanel({
     onKeyDown,
     submit: submitDraft,
   } = useComposer({
-    onSubmit: (text) => chat.send(text),
+    onSubmit: ask,
     disabled: chat.busy || chat.loading,
   });
-  const fired = useRef<string | null>(null);
 
   /**
    * A question typed into the document's composer. It has to wait for this panel
@@ -90,9 +138,9 @@ export function DocChatPanel({
     if (fired.current === key) return;
     fired.current = key;
 
-    chat.send(pending.text);
+    ask(pending.text);
     onPendingSent();
-  }, [pending, chatId, chat.loading, chat, onPendingSent]);
+  }, [pending, chatId, chat.loading, ask, onPendingSent]);
 
   const title = chats.find((item) => item.id === chatId)?.title ?? "New chat";
 
@@ -169,7 +217,7 @@ export function DocChatPanel({
                   <button
                     key={suggestion}
                     type="button"
-                    onClick={() => chat.send(suggestion)}
+                    onClick={() => ask(suggestion)}
                     className="cursor-pointer rounded-lg border border-line bg-surface px-2.5 py-1.5 text-left text-[12px] leading-snug text-ink transition-colors hover:border-ink/25 hover:bg-paper"
                   >
                     {suggestion}
@@ -185,6 +233,40 @@ export function DocChatPanel({
         </div>
 
         <div className="shrink-0 border-t border-line bg-paper/85 px-2.5 py-2 backdrop-blur pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+          {chat.context.length > 0 && (
+            <div className="mb-1.5 flex flex-wrap gap-1">
+              {chat.context.map((item) => (
+                <span
+                  key={`${item.docId}-${item.page}`}
+                  className="flex max-w-full items-center gap-1 rounded-md border border-line bg-surface px-1.5 py-0.5 text-[10.5px] text-ink-muted"
+                >
+                  <Paperclip className="size-2.5 shrink-0" aria-hidden />
+                  <span className="truncate">{item.docName}</span>
+                  <span className="shrink-0 font-mono">p.{item.page}</span>
+                  <button
+                    type="button"
+                    aria-label={`Remove page ${item.page} from context`}
+                    onClick={() => {
+                      removeContext(item.docId, item.page);
+                      // Remember the removal, or the next question would put the
+                      // same page straight back.
+                      if (
+                        autoPin.current?.docId === item.docId &&
+                        autoPin.current.page === item.page
+                      ) {
+                        skipPin.current = autoPin.current;
+                        autoPin.current = null;
+                      }
+                    }}
+                    className="cursor-pointer rounded p-0.5 hover:text-ink"
+                  >
+                    <X className="size-2.5" aria-hidden />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
           <div className="flex items-end gap-1.5 rounded-[14px] border border-line bg-surface px-2 py-1.5 transition-colors focus-within:border-ink/30">
             <textarea
               ref={attach}
