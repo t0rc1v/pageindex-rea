@@ -2,6 +2,7 @@
 
 import { toast } from "sonner";
 
+import { chatListUrl, isDocChat } from "./chat-scope";
 import type {
   DocRef,
   StoredChat,
@@ -41,6 +42,18 @@ let cache: StoredChat[] = [];
 let hydrated = false;
 let inflight: Promise<void> | null = null;
 
+/**
+ * Conversations born inside a document, by document id.
+ *
+ * Kept apart from Recents rather than merged and filtered: the sidebar renders
+ * Recents on every page, and a document chat pointing up there is the one thing
+ * this split exists to prevent. A document's list is fetched when its reader
+ * opens, so the cache never has to hold every chat in every document.
+ */
+const docCache = new Map<string, StoredChat[]>();
+const docReady = new Set<string>();
+const docInflight = new Map<string, Promise<void>>();
+
 /** `idle` before the first fetch, `error` only after a failed one. */
 export type ChatsStatus = "idle" | "loading" | "ready" | "error";
 let status: ChatsStatus = "idle";
@@ -67,6 +80,20 @@ const EMPTY: StoredChat[] = [];
 
 export function getChatsServerSnapshot(): StoredChat[] {
   return EMPTY;
+}
+
+/** One document's chats. Identity is stable until that document's list changes. */
+export function getDocChatsSnapshot(docId: string): StoredChat[] {
+  return docCache.get(docId) ?? EMPTY;
+}
+
+export function getDocChatsServerSnapshot(): StoredChat[] {
+  return EMPTY;
+}
+
+/** Whether this document's list has answered yet, so an empty menu can say so. */
+export function getDocChatsReady(docId: string): boolean {
+  return docReady.has(docId);
 }
 
 /**
@@ -126,6 +153,41 @@ export async function fetchChat(id: string): Promise<StoredChat | null> {
   return payload.chat;
 }
 
+/**
+ * Pull one document's chats.
+ *
+ * Separate from `hydrateChats` because the two lists are disjoint on the
+ * server: Recents never contains a conversation born in a document. Collapsed
+ * per document, and cheap enough to re-fetch whenever the menu opens.
+ */
+export function hydrateDocChats(docId: string, force = false): Promise<void> {
+  if (typeof window === "undefined" || !docId) return Promise.resolve();
+
+  const existing = docInflight.get(docId);
+  if (existing) return existing;
+  if (docReady.has(docId) && !force) return Promise.resolve();
+
+  const next = (async () => {
+    const response = await fetch(chatListUrl({ kind: "document", docId }));
+    if (!response.ok) throw new Error(`GET /api/chats?docId=… → ${response.status}`);
+
+    const payload = (await response.json()) as { chats: StoredChat[] };
+    docCache.set(docId, payload.chats.slice(0, MAX_CHATS));
+    docReady.add(docId);
+    emit();
+  })()
+    .catch((error: unknown) => {
+      console.error("hydrateDocChats", error);
+      toast.error("Could not load this document's chats.");
+    })
+    .finally(() => {
+      docInflight.delete(docId);
+    });
+
+  docInflight.set(docId, next);
+  return next;
+}
+
 /** Persist a conversation, keeping Recents in step optimistically. */
 export function saveChat(chat: StoredChat): void {
   if (typeof window === "undefined") return;
@@ -174,9 +236,24 @@ function rememberChat(chat: StoredChat) {
     turns: [],
   };
 
-  cache = [summary, ...cache.filter((item) => item.id !== chat.id)]
-    .sort((a, b) => b.updatedAt - a.updatedAt)
-    .slice(0, MAX_CHATS);
+  /**
+   * Route the optimistic update to the list this chat belongs to. A document
+   * chat also marks that document's list as loaded: the save just proved it.
+   */
+  if (isDocChat(chat)) {
+    const docId = chat.originDocId;
+    docCache.set(
+      docId,
+      [summary, ...(docCache.get(docId) ?? []).filter((item) => item.id !== chat.id)]
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .slice(0, MAX_CHATS),
+    );
+    docReady.add(docId);
+  } else {
+    cache = [summary, ...cache.filter((item) => item.id !== chat.id)]
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, MAX_CHATS);
+  }
   emit();
 }
 
@@ -184,9 +261,13 @@ export function renameChat(id: string, title: string): void {
   const trimmed = title.trim().slice(0, 200);
   if (!trimmed) return;
 
-  cache = cache
-    .map((chat) => (chat.id === id ? { ...chat, title: trimmed, updatedAt: Date.now() } : chat))
-    .sort((a, b) => b.updatedAt - a.updatedAt);
+  const renamed = (chat: StoredChat) =>
+    chat.id === id ? { ...chat, title: trimmed, updatedAt: Date.now() } : chat;
+
+  cache = cache.map(renamed).sort((a, b) => b.updatedAt - a.updatedAt);
+  for (const [docId, list] of docCache) {
+    docCache.set(docId, list.map(renamed).sort((a, b) => b.updatedAt - a.updatedAt));
+  }
   emit();
 
   void fetch(`/api/chats/${encodeURIComponent(id)}`, {
@@ -206,6 +287,9 @@ export function renameChat(id: string, title: string): void {
 
 export function deleteChat(id: string): void {
   cache = cache.filter((chat) => chat.id !== id);
+  for (const [docId, list] of docCache) {
+    docCache.set(docId, list.filter((chat) => chat.id !== id));
+  }
   emit();
 
   void fetch(`/api/chats/${encodeURIComponent(id)}`, { method: "DELETE" })
@@ -223,6 +307,8 @@ export function deleteChat(id: string): void {
 
 export async function clearChats(): Promise<void> {
   cache = [];
+  docCache.clear();
+  docReady.clear();
   emit();
 
   const response = await fetch("/api/chats", { method: "DELETE" }).catch(() => null);

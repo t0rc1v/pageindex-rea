@@ -6,7 +6,11 @@ import {
   getChatsServerSnapshot,
   getChatsSnapshot,
   getChatsStatus,
+  getDocChatsReady,
+  getDocChatsServerSnapshot,
+  getDocChatsSnapshot,
   hydrateChats,
+  hydrateDocChats,
   subscribeChats,
   type ChatsStatus,
   type StoredChat,
@@ -25,6 +29,32 @@ export function useChats(): StoredChat[] {
   }, []);
 
   return chats;
+}
+
+/**
+ * One document's conversations, newest first.
+ *
+ * A different list, not a filtered copy of Recents: the server keeps them apart
+ * and so does the cache. `ready` separates "no chats in this document" from
+ * "the request has not answered yet".
+ */
+export function useDocChats(docId: string): { chats: StoredChat[]; ready: boolean } {
+  const chats = useSyncExternalStore(
+    subscribeChats,
+    () => getDocChatsSnapshot(docId),
+    getDocChatsServerSnapshot,
+  );
+  const ready = useSyncExternalStore(
+    subscribeChats,
+    () => getDocChatsReady(docId),
+    () => false,
+  );
+
+  useEffect(() => {
+    void hydrateDocChats(docId);
+  }, [docId]);
+
+  return { chats, ready };
 }
 
 /** Server render and the first client paint both report `loading`. */

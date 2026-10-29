@@ -109,6 +109,7 @@ function toStored(
   docs: ChatDoc[],
   chatId: string,
   createdAt: number,
+  originDocId?: string,
 ): StoredChat {
   const firstUser = turns.find((turn) => turn.role === "user");
   return {
@@ -118,6 +119,7 @@ function toStored(
     updatedAt: Date.now(),
     docIds,
     docs,
+    ...(originDocId ? { originDocId } : {}),
     turns: turns.map((turn) => ({
       id: turn.id,
       role: turn.role,
@@ -195,6 +197,8 @@ export interface UseChatResult {
 export function useChat(options: {
   chatId?: string;
   initialDocs?: ChatDoc[];
+  /** Set when this conversation was started inside a document's reader. */
+  originDocId?: string;
 }): UseChatResult {
   const [chatId, setChatId] = useState<string | null>(options.chatId ?? null);
   const [turns, setTurns] = useState<ChatTurn[]>([]);
@@ -261,9 +265,16 @@ export function useChat(options: {
 
   const persist = useCallback((nextTurns: ChatTurn[], nextDocs: ChatDoc[], id: string) => {
     saveChat(
-      toStored(nextTurns, nextDocs.map((doc) => doc.id), nextDocs, id, createdAt.current ?? Date.now()),
+      toStored(
+        nextTurns,
+        nextDocs.map((doc) => doc.id),
+        nextDocs,
+        id,
+        createdAt.current ?? Date.now(),
+        options.originDocId,
+      ),
     );
-  }, []);
+  }, [options.originDocId]);
 
   const setDocs = useCallback((next: ChatDoc[]) => {
     setDocsState(next);
