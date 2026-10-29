@@ -9,6 +9,10 @@ If you only remember three things:
 2. **Migrations go to production before the code that needs them merges.**
 3. **Never edit a migration that has already run.** Add a new one.
 
+When it runs but something is wrong — 500s, a console error, a suite that rots —
+`docs/DEBUGGING.md` maps symptoms to causes. The three things above are about
+changing the repo; that file is about diagnosing it.
+
 ---
 
 ## The three databases
