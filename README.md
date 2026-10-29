@@ -378,6 +378,7 @@ lib/
   server/pages-cache.ts        bounded page-content cache
 drizzle.config.ts              drizzle-kit (loads .env.local via @next/env)
 CONTRIBUTING.md                the branch → PR → migrate → deploy loop
+docs/DEBUGGING.md              symptom → cause: 500s, console errors, e2e rot
 .github/workflows/ci.yml       verify (secretless) + e2e (guarded) jobs
 scripts/ensure-e2e-user.mjs    idempotent test-account provisioning
 docs/REVERSE-ENGINEERING.md    evidence, inferences, open questions
