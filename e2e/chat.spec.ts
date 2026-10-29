@@ -94,6 +94,26 @@ test.describe("conversation surface", () => {
     await expect(card).toContainText("Text block");
   });
 
+  /**
+   * The preview must not depend on the citations frame having landed: the chip is
+   * on screen as soon as its tag streams in, and the frame (which carries the
+   * document id) arrives after the text finishes. The mock can hold that frame
+   * back on request, so this is the deterministic version of a race that used to
+   * surface as "outside the current scope" for the document on screen.
+   */
+  test("a citation clicked mid-answer already opens its page", async ({ page }) => {
+    await page.goto("/chat");
+    await page.getByPlaceholder(/Ask a question/).fill("Cite later: summarise the risks.");
+    await page.getByLabel("Send message").click();
+
+    await page.getByRole("button", { name: /^Citation 1:/ }).click();
+
+    const card = page.getByRole("dialog", { name: "Citation details" });
+    await expect(card).toBeVisible();
+    await expect(card).not.toContainText("outside the current scope");
+    await expect(card).toContainText(/Page \d of 3/);
+  });
+
   test("citation preview hugs its marker: same gap either side, follows scroll", async ({ page }) => {
     await page.goto("/chat");
     await page.getByPlaceholder(/Ask a question/).fill("Summarize the key findings.");

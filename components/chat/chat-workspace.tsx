@@ -118,31 +118,47 @@ export function ChatWorkspace({ chatId, initialDocs }: { chatId?: string; initia
     [chat.docs, chat.library],
   );
 
-  const openCitation = useCallback((citation: Citation) => {
-    setPreview(null);
-    if (!citation.docId) return;
-    setOpenDocs((docs) => {
-      const existing = docs.find((doc) => doc.docId === citation.docId);
-      if (existing) {
-        return docs.map((doc) =>
-          doc.docId === citation.docId
-            ? { ...doc, page: citation.page, blockId: citation.blockId, bbox: citation.bbox }
-            : doc,
-        );
-      }
-      return [
-        ...docs,
-        {
-          docId: citation.docId!,
-          name: citation.document,
-          page: citation.page,
-          blockId: citation.blockId,
-          bbox: citation.bbox,
-        },
-      ];
-    });
-    setActiveDocId(citation.docId);
-  }, []);
+  /**
+   * A citation gets its doc id when the answer's citations frame is merged. A
+   * preview opened before that — the frame lands after the text finishes — would
+   * hold an unfilled citation and report "outside the current scope" for the
+   * document the user is looking at, so the id is resolved from the name here.
+   */
+  const withDocId = useCallback(
+    (citation: Citation): Citation =>
+      citation.docId ? citation : { ...citation, docId: resolveDocId(citation.document) },
+    [resolveDocId],
+  );
+
+  const openCitation = useCallback(
+    (unresolved: Citation) => {
+      const citation = withDocId(unresolved);
+      setPreview(null);
+      if (!citation.docId) return;
+      setOpenDocs((docs) => {
+        const existing = docs.find((doc) => doc.docId === citation.docId);
+        if (existing) {
+          return docs.map((doc) =>
+            doc.docId === citation.docId
+              ? { ...doc, page: citation.page, blockId: citation.blockId, bbox: citation.bbox }
+              : doc,
+          );
+        }
+        return [
+          ...docs,
+          {
+            docId: citation.docId!,
+            name: citation.document,
+            page: citation.page,
+            blockId: citation.blockId,
+            bbox: citation.bbox,
+          },
+        ];
+      });
+      setActiveDocId(citation.docId);
+    },
+    [withDocId],
+  );
 
   const addPageToChat = useCallback(
     async (doc: OpenDoc) => {
@@ -245,7 +261,9 @@ export function ChatWorkspace({ chatId, initialDocs }: { chatId?: string; initia
                       else answerNodes.current.delete(turn.id);
                     }}
                     getNode={() => answerNodes.current.get(turn.id) ?? null}
-                    onPreview={(citation, rect, marker) => setPreview({ citation, rect, marker })}
+                    onPreview={(citation, rect, marker) =>
+                      setPreview({ citation: withDocId(citation), rect, marker })
+                    }
                     onOpenPage={openCitation}
                     onRegenerate={chat.regenerate}
                     onSelectRun={(index) => chat.selectRun(turn.id, index)}

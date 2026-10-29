@@ -1,4 +1,71 @@
-import { expect, test as base } from "@playwright/test";
+import { clerk } from "@clerk/testing/playwright";
+import { expect, test as base, type Page } from "@playwright/test";
+
+const USER_EMAIL = process.env.E2E_CLERK_USER_EMAIL ?? "pageindex-e2e+clerk_test@example.com";
+
+/** Matches `playwright.config.ts`; renewed sessions are written back here. */
+const AUTH_STATE = "e2e/.auth/user.json";
+
+/**
+ * Renew the session when it has expired, before the test starts.
+ *
+ * A Clerk development instance issues a 60-second session JWT and no refresh
+ * cookie (`session-token-expired-refresh-non-eligible-no-refresh-cookie`), so a
+ * suite that outlives the token starts answering `/api/*` with a sign-in
+ * redirect — `page.request` calls then try to parse HTML as JSON, and loading a
+ * page does not revive it. Minting a new session is the only thing that does.
+ *
+ * A signed-out spec opts out by having no session cookie at all, which is what
+ * `auth.spec.ts` relies on.
+ */
+/** Seconds left on the shortest session token, or null when there is none. */
+async function sessionSecondsLeft(page: Page): Promise<number | null> {
+  const cookies = (await page.context().cookies()).filter((cookie) =>
+    cookie.name.startsWith("__session"),
+  );
+  if (cookies.length === 0) return null;
+
+  const now = Date.now() / 1000;
+  let shortest = Number.POSITIVE_INFINITY;
+  for (const cookie of cookies) {
+    const payload = cookie.value.split(".")[1];
+    if (!payload) continue;
+    try {
+      const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+      if (typeof claims.exp === "number") shortest = Math.min(shortest, claims.exp - now);
+    } catch {
+      /* an opaque token cannot be dated, so it is never treated as stale */
+    }
+  }
+  return Number.isFinite(shortest) ? shortest : null;
+}
+
+/**
+ * Renew the session before a test outlives it.
+ *
+ * A Clerk development instance issues a 60-second session JWT and no refresh
+ * cookie, and clerk-js does not renew it either — the expiry simply counts down
+ * while pages are open. So a suite longer than a minute starts answering
+ * `/api/*` with a sign-in redirect, and `page.request` calls try to parse the
+ * sign-in page as JSON.
+ *
+ * Clearing the cookies is what makes a new sign-in possible: with the old
+ * session still in the jar, `clerk.signIn` refuses ("You're already signed in").
+ * A spec that starts signed out has no session cookie and is left alone, which
+ * is what `auth.spec.ts` relies on.
+ */
+async function renewExpiredSession(page: Page): Promise<void> {
+  const left = await sessionSecondsLeft(page);
+  if (left === null || left > 20) return;
+
+  await page.context().clearCookies();
+  await page.goto("/sign-in");
+  await clerk.signIn({ page, emailAddress: USER_EMAIL });
+
+  // Each test gets its own context, seeded from the file the setup project wrote.
+  // Without writing the renewed session back, every test would renew again.
+  await page.context().storageState({ path: AUTH_STATE });
+}
 
 /**
  * Shared test fixture: every page fails the test if it reports a CSP violation
@@ -55,6 +122,8 @@ export const test = base.extend({
         hydration.push(error.message);
       }
     });
+
+    await renewExpiredSession(page);
 
     // Playwright's fixture callback, not a React hook — the lint rule cannot tell.
     // eslint-disable-next-line react-hooks/rules-of-hooks
