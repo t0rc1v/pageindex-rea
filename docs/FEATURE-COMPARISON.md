@@ -186,8 +186,8 @@ Every browser call is `POST /api/orpc/<router>/<proc>` with `{json: …}`, plus
 
 ## 4. Status against this clone
 
-Status as of the current build (revised 2026-10-29); §8, §9.10 and §9.11 record
-the work behind each ✔.
+Status as of the current build (revised 2026-10-30); §8, §9.10, §9.11 and
+§9.12 record the work behind each ✔.
 
 Legend: **✔ parity** · **◐ partial** · **✗ missing**
 
@@ -238,6 +238,7 @@ Legend: **✔ parity** · **◐ partial** · **✗ missing**
 | **True PDF + determinate progress** | ✗ | page JPEG + OCR markdown |
 | **Mobile: full-height `Document Viewer` sheet** | ✔ | bottom sheet under `lg` |
 | `Document info`, `Add Page to Chat` | ✔ | |
+| **Chat about the document, in place** | ✔ | the reader grows a composer; its chats live under **Chat**, not Recents — §9.12 |
 | Bulk `resolveCitations` server call | ◐ | per-block fetch |
 
 ### 4.4 Platform
@@ -351,6 +352,7 @@ live Cloud API.
 | P1-7 Composer | Single card, `+ Select Documents` popover (search + multi-select + "whole library"), circular send/stop, `AI is thinking…` placeholder. |
 | P1-8 Answer artifacts | Tables copy as Markdown / download as CSV; code blocks copy. |
 | P1-11 Ingestion breadth | Upload accepts PDF, Word, PowerPoint, CSV, Markdown, TXT and `.zip` bundles, validated server-side (`ACCEPTED_EXTENSIONS`). |
+| — | **Reader chat**: the mirror of §1.5 — a one-row composer under the page starts a conversation about that document, the panel beside it continues it, and a `Chat` menu lists the document's chats. A citation turns the reader instead of opening a viewer, `?chat=` keeps the panel through a reload, and the surface is docked ≥1280 px, a right-hand sheet 768–1279, a bottom sheet under 768 (`components/doc-chat/*`) — §9.12. |
 | — | Reasoning row (`Thought for Ns`) holding the model's narration, timings persisted. |
 | — | Error codes mapped to readable copy (`InsufficientCredits` → an actionable sentence). |
 
@@ -406,8 +408,8 @@ items 2–8.
 
 ### 9.2 Frontend — documents, library, reader
 
-Delivered since: grid ⇄ list toggle, rename/description, ZIP per-entry results and
-per-file upload progress — §9.10 items 9–12.
+Delivered since: grid ⇄ list toggle, rename/description, ZIP per-entry results,
+per-file upload progress — §9.10 items 9–12 — and in-reader chat (§9.12).
 
 | Gap | Detail | Blocked by |
 | --- | --- | --- |
@@ -621,3 +623,40 @@ What this changes about the comparison: conversations are now a **record**, like
 theirs, so cross-device and "lost on clear" stop being caveats. Still absent from
 this surface, unchanged from §9.5 and §9.8: sharing (chat/doc/folder + access
 toggles), usage metering and quotas, billing/plans/seats, and team roles.
+
+---
+
+## 9.12 Delivered — the reader's own chat surface
+
+The reverse of §1.5. In `/chat` the conversation is the page and the document is
+the panel; in `/doc/[docId]` the document is the page and the conversation opens
+beside it. Same transcript, same streaming, same variants — only the direction a
+citation travels is inverted.
+
+| Piece | What shipped | Where |
+| --- | --- | --- |
+| Composer | One row under the page, scope locked to the document, `⌘K`. Sending starts a **new** chat; it never appends to the one already in the panel. | `components/doc-chat/doc-composer.tsx` |
+| Panel | Title + chat switcher, transcript, and its own composer. Stop, regenerate, edit, branch and feedback come from the shared transcript rather than a second implementation. Docked ≥1280 px, right-hand sheet 768–1279, bottom sheet under 768. | `doc-chat-panel.tsx`, `chat-transcript.tsx` |
+| Chat list | Recency-ordered, new / rename / delete, count badge; the same control renders in the reader header and in the panel header, so switching conversations never means going back first. | `doc-chat-menu.tsx` |
+| Citation direction | Chip → preview → `Open page ↗` turns the reader under the panel. Below 1280 px the panel closes first, or it would cover the page it just opened. A citation from another document opens that document's reader at its page. | `components/doc-view.tsx` |
+| Address bar | `?chat=` names the open conversation; `page` and `block` keep working on the same URL, and each writer preserves the others' parameters. | `use-doc-chat.ts` |
+| Storage | `chats.origin_doc_id` marks where a conversation was born — the PageIndex id, the same space `scopeDocs[].id` uses. Recents and a document's list are disjoint, and origin is written once: a later save cannot move a chat between them. | `lib/db/schema.ts`, `lib/server/chats.ts`, `lib/chat-store.ts` |
+
+Evidence: `e2e/doc-chat.spec.ts` — eight specs covering composer → panel, reload
+from `?chat=`, panel composer continues the same chat, a citation turns the
+reader without opening a second panel, the phone sheet closing on a citation, and
+the menu's list/rename/delete. The hydration guard in `e2e/fixtures.ts` also
+covers a panel opened straight from a query parameter.
+
+Deliberately not built, and why:
+
+- **Resizable panel.** 420 px reads well, and the page renders that want width are
+  in the `/chat` document panel. A drag handle would also reopen the "does tree +
+  page + panel still fit at 1280 px" question mid-drag, for a cosmetic control.
+- **Pinning the page you are reading into the question.** `useChat` already
+  carries `context` / `addContext` (the `/chat` *Add Page to Chat* path) and the
+  reader does not use it yet. That is a product addition, queued on its own.
+- **Composer code sharing.** The three composers (chat, document, panel) still
+  carry their own draft / autosize / Enter-to-send handling. Extracting it into
+  one hook is queued separately; it is behaviour, not layout, and the copies have
+  already drifted once (`⌘K` is bound in two of three).
