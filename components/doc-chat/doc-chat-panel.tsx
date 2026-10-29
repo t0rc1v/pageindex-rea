@@ -1,12 +1,13 @@
 "use client";
 
 import { ArrowUp, MessageSquare, Square, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 import type { StoredChat } from "@/lib/chat-types";
 import type { Citation } from "@/lib/pageindex/types";
 import { ChatTranscript } from "@/components/chat/chat-transcript";
 import { useChat } from "@/components/chat/use-chat";
+import { useComposer } from "@/components/chat/use-composer";
 import { Skeleton, cn } from "@/components/ui-kit";
 import { DocChatMenu } from "./doc-chat-menu";
 import type { PendingMessage } from "./use-doc-chat";
@@ -65,8 +66,16 @@ export function DocChatPanel({
   const initialDocs = useMemo(() => [{ id: docId, name: docName }], [docId, docName]);
   const chat = useChat({ chatId, initialDocs, originDocId: docId });
 
-  const [draft, setDraft] = useState("");
-  const input = useRef<HTMLTextAreaElement>(null);
+  const {
+    value: draft,
+    attach,
+    onChange,
+    onKeyDown,
+    submit: submitDraft,
+  } = useComposer({
+    onSubmit: (text) => chat.send(text),
+    disabled: chat.busy || chat.loading,
+  });
   const fired = useRef<string | null>(null);
 
   /**
@@ -84,14 +93,6 @@ export function DocChatPanel({
     chat.send(pending.text);
     onPendingSent();
   }, [pending, chatId, chat.loading, chat, onPendingSent]);
-
-  const submit = () => {
-    const text = draft.trim();
-    if (!text || chat.busy || chat.loading) return;
-    chat.send(text);
-    setDraft("");
-    if (input.current) input.current.style.height = "auto";
-  };
 
   const title = chats.find((item) => item.id === chatId)?.title ?? "New chat";
 
@@ -186,20 +187,10 @@ export function DocChatPanel({
         <div className="shrink-0 border-t border-line bg-paper/85 px-2.5 py-2 backdrop-blur pb-[max(0.5rem,env(safe-area-inset-bottom))]">
           <div className="flex items-end gap-1.5 rounded-[14px] border border-line bg-surface px-2 py-1.5 transition-colors focus-within:border-ink/30">
             <textarea
-              ref={input}
+              ref={attach}
               value={draft}
-              onChange={(event) => {
-                setDraft(event.target.value);
-                const element = event.target;
-                element.style.height = "auto";
-                element.style.height = `${Math.min(element.scrollHeight, 96)}px`;
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
-                  submit();
-                }
-              }}
+              onChange={onChange}
+              onKeyDown={onKeyDown}
               rows={1}
               placeholder={chat.busy ? "Answering…" : "Ask a follow-up…"}
               aria-label="Ask a follow-up"
@@ -218,7 +209,7 @@ export function DocChatPanel({
             ) : (
               <button
                 type="button"
-                onClick={submit}
+                onClick={submitDraft}
                 disabled={!draft.trim() || chat.loading}
                 aria-label="Send message"
                 className="mb-0.5 grid size-8 shrink-0 cursor-pointer place-items-center rounded-full bg-ink text-paper transition-opacity disabled:cursor-not-allowed disabled:opacity-30"

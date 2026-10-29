@@ -1,7 +1,9 @@
 "use client";
 
 import { ArrowUp, Lock } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
+
+import { useComposer } from "@/components/chat/use-composer";
 
 /**
  * The reader's own composer: one row, pinned under the page.
@@ -23,27 +25,18 @@ export function DocComposer({
   disabled?: boolean;
   onSend: (text: string) => void;
 }) {
-  const [value, setValue] = useState("");
-  const input = useRef<HTMLTextAreaElement>(null);
+  const { value, attach, onChange, onKeyDown, submit, focus } = useComposer({ onSubmit: onSend, disabled });
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        input.current?.focus();
+        focus();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
-  const submit = () => {
-    const text = value.trim();
-    if (!text || disabled) return;
-    setValue("");
-    if (input.current) input.current.style.height = "auto";
-    onSend(text);
-  };
+  }, [focus]);
 
   return (
     <div className="shrink-0 border-t border-line bg-paper/85 px-3 py-2 backdrop-blur sm:px-4 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
@@ -64,20 +57,10 @@ export function DocComposer({
           </span>
 
           <textarea
-            ref={input}
+            ref={attach}
             value={value}
-            onChange={(event) => {
-              setValue(event.target.value);
-              const element = event.target;
-              element.style.height = "auto";
-              element.style.height = `${Math.min(element.scrollHeight, 96)}px`;
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                submit();
-              }
-            }}
+            onChange={onChange}
+            onKeyDown={onKeyDown}
             rows={1}
             disabled={disabled}
             placeholder={
