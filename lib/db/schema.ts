@@ -156,11 +156,34 @@ export const chats = pgTable(
     title: text("title").notNull(),
     /** Documents chosen for the whole conversation, mirroring the scope pill. */
     scopeDocs: jsonb("scope_docs").$type<DocRef[]>().notNull().default([]),
+    /**
+     * The document this conversation was started inside, if any.
+     *
+     * Deliberately not the same thing as `scopeDocs`: that is what the
+     * conversation is *about*, and it can change per question. This is where it
+     * was born, and it never changes afterwards. It is what keeps a chat out of
+     * Recents and lists it under that document's Chat menu instead.
+     *
+     * Holds the **PageIndex id**, like `scopeDocs[].id` — one id space for
+     * documents throughout the chat layer, and the value the reader already has
+     * in its URL. That costs the cascade: `deleteDocument` deletes these rows
+     * explicitly, which is the one place that can leave them orphaned.
+     */
+    originDocId: text("origin_doc_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   // Recents filters on both tenant and author, then orders by recency.
-  (t) => [index("chats_tenant_author_updated_idx").on(t.tenantId, t.createdBy, t.updatedAt.desc())],
+  (t) => [
+    index("chats_tenant_author_updated_idx").on(t.tenantId, t.createdBy, t.updatedAt.desc()),
+    // The per-document Chat menu asks the same question narrowed to one document.
+    index("chats_tenant_author_origin_updated_idx").on(
+      t.tenantId,
+      t.createdBy,
+      t.originDocId,
+      t.updatedAt.desc(),
+    ),
+  ],
 );
 
 export const chatTurns = pgTable(

@@ -1,4 +1,6 @@
-import { type Locator } from "@playwright/test";
+import { randomUUID } from "node:crypto";
+
+import { type Locator, type Page } from "@playwright/test";
 
 import { expect, test } from "./fixtures";
 
@@ -311,5 +313,85 @@ test.describe("document ownership", () => {
     expect(response.status()).toBe(404);
     const body = (await response.json()) as { error?: string };
     expect(body.error).toMatch(/available in this workspace/i);
+  });
+});
+
+/**
+ * Two lists, one column.
+ *
+ * `origin_doc_id` is what decides whether a conversation belongs to Recents or
+ * to the document it was started in; Recents is the default and `?docId=` swaps
+ * lists. The reader does not create chats yet, so these exercise the contract
+ * directly — the same calls its Chat menu will make.
+ */
+test.describe("conversation origins", () => {
+  const DOC = "pi-mock-1";
+  const DOC_NAME = "Annual Report 2024.pdf";
+
+  /** PUT a conversation the way the document reader would. */
+  async function putChat(page: Page, id: string, originDocId?: string) {
+    const response = await page.request.put(`/api/chats/${id}`, {
+      data: {
+        title: "About the report",
+        scopeDocs: [{ id: DOC, name: DOC_NAME }],
+        ...(originDocId ? { originDocId } : {}),
+        turns: [],
+      },
+    });
+    expect(response.status()).toBe(204);
+  }
+
+  async function listed(page: Page, path: string, id: string) {
+    const response = await page.request.get(path);
+    expect(response.ok(), path).toBeTruthy();
+    const body = (await response.json()) as { chats: Array<{ id: string; originDocId?: string }> };
+    return body.chats.find((chat) => chat.id === id);
+  }
+
+  test("a document chat is listed by its document, never in Recents", async ({ page }) => {
+    const id = randomUUID();
+    await putChat(page, id, DOC);
+
+    const scoped = await listed(page, `/api/chats?docId=${encodeURIComponent(DOC)}`, id);
+    expect(scoped?.originDocId).toBe(DOC);
+
+    expect(await listed(page, "/api/chats", id)).toBeUndefined();
+
+    const single = await page.request.get(`/api/chats/${id}`);
+    const body = (await single.json()) as { chat: { originDocId?: string } };
+    expect(body.chat.originDocId).toBe(DOC);
+  });
+
+  test("origin is set once and never rewritten by a later save", async ({ page }) => {
+    const id = randomUUID();
+    await putChat(page, id, DOC);
+
+    // A save from a surface that does not know where the chat came from must not
+    // be able to move it between lists.
+    await putChat(page, id);
+
+    expect(await listed(page, `/api/chats?docId=${encodeURIComponent(DOC)}`, id)).toBeDefined();
+    expect(await listed(page, "/api/chats", id)).toBeUndefined();
+  });
+
+  test("a document this workspace does not own cannot become an origin", async ({ page }) => {
+    const response = await page.request.put(`/api/chats/${randomUUID()}`, {
+      data: {
+        title: "About the memo",
+        scopeDocs: [],
+        // The mock serves it; this workspace never claimed it.
+        originDocId: "pi-mock-2",
+        turns: [],
+      },
+    });
+
+    expect(response.status()).toBe(400);
+    const body = (await response.json()) as { error?: string };
+    expect(body.error).toMatch(/document is not available/i);
+  });
+
+  test("a malformed document filter is a 400, not a 500", async ({ page }) => {
+    const response = await page.request.get(`/api/chats?docId=${"x".repeat(201)}`);
+    expect(response.status()).toBe(400);
   });
 });

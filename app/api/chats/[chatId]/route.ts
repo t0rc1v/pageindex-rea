@@ -1,5 +1,6 @@
 import {
   ChatConflictError,
+  ChatDocumentError,
   chatPayloadSchema,
   deleteChat,
   getChat,
@@ -71,6 +72,12 @@ export async function PUT(request: Request, ctx: RouteContext<"/api/chats/[chatI
   try {
     await saveChat(tenantId, userId, chatId, parsed.data);
   } catch (error) {
+    if (error instanceof ChatDocumentError) {
+      return jsonResponse(
+        { error: error.message, code: "INTERNAL", status: 400 },
+        { status: 400 },
+      );
+    }
     if (error instanceof ChatConflictError) {
       return jsonResponse(
         { error: error.message, code: "INTERNAL", status: 409 },
