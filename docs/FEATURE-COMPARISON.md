@@ -636,6 +636,7 @@ citation travels is inverted.
 | Piece | What shipped | Where |
 | --- | --- | --- |
 | Composer | One row under the page, scope locked to the document, `⌘K`. Sending starts a **new** chat; it never appends to the one already in the panel. | `components/doc-chat/doc-composer.tsx` |
+| Composer rules | Draft, autosize to a per-surface ceiling, Enter sends / Shift+Enter newlines, nothing sends mid-IME, clear on send — one hook for all three surfaces, each keeping its own chrome and send/stop button. | `components/chat/use-composer.ts`, `lib/composer-keys.ts` |
 | Panel | Title + chat switcher, transcript, and its own composer. Stop, regenerate, edit, branch and feedback come from the shared transcript rather than a second implementation. Docked ≥1280 px, right-hand sheet 768–1279, bottom sheet under 768. | `doc-chat-panel.tsx`, `chat-transcript.tsx` |
 | Chat list | Recency-ordered, new / rename / delete, count badge; the same control renders in the reader header and in the panel header, so switching conversations never means going back first. | `doc-chat-menu.tsx` |
 | Citation direction | Chip → preview → `Open page ↗` turns the reader under the panel. Below 1280 px the panel closes first, or it would cover the page it just opened. A citation from another document opens that document's reader at its page. | `components/doc-view.tsx` |
@@ -656,7 +657,3 @@ Deliberately not built, and why:
 - **Pinning the page you are reading into the question.** `useChat` already
   carries `context` / `addContext` (the `/chat` *Add Page to Chat* path) and the
   reader does not use it yet. That is a product addition, queued on its own.
-- **Composer code sharing.** The three composers (chat, document, panel) still
-  carry their own draft / autosize / Enter-to-send handling. Extracting it into
-  one hook is queued separately; it is behaviour, not layout, and the copies have
-  already drifted once (`⌘K` is bound in two of three).

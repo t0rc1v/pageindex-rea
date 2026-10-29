@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui-kit";
 import { ChatTranscript } from "./chat-transcript";
 import { DocumentPanel, type OpenDoc } from "./document-panel";
 import { DocPicker } from "./doc-picker";
+import { useComposer } from "./use-composer";
 import { useDocIds } from "./use-doc-ids";
 import { useChat, type ChatDoc } from "./use-chat";
 
@@ -27,13 +28,11 @@ export function ChatWorkspace({ chatId, initialDocs }: { chatId?: string; initia
   const [openDocs, setOpenDocs] = useState<OpenDoc[]>([]);
   const [activeDocId, setActiveDocId] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [input, setInput] = useState("");
   const [atBottom, setAtBottom] = useState(true);
   // One cheap probe decides between onboarding and the prompt suggestions.
   const library = useFetch<DocumentListResponse>("/api/docs?limit=1", { staleTime: 60_000 });
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     const element = scrollRef.current;
@@ -41,17 +40,33 @@ export function ChatWorkspace({ chatId, initialDocs }: { chatId?: string; initia
     element.scrollTop = element.scrollHeight;
   }, [chat.turns, atBottom]);
 
+  const send = (text: string) => {
+    const value = text.trim();
+    if (!value) return;
+    chat.send(value);
+    setAtBottom(true);
+  };
+
+  const {
+    value: draft,
+    attach,
+    onChange,
+    onKeyDown,
+    submit: submitDraft,
+    focus,
+  } = useComposer({ onSubmit: send, disabled: chat.loading, maxHeight: 176 });
+
   // ⌘/Ctrl+K jumps to the composer wherever focus is.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        composerRef.current?.focus();
+        focus();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [focus]);
 
   const onScroll = useCallback(() => {
     const element = scrollRef.current;
@@ -125,14 +140,6 @@ export function ChatWorkspace({ chatId, initialDocs }: { chatId?: string; initia
     [chat],
   );
 
-  const submit = (text: string) => {
-    const value = text.trim();
-    if (!value) return;
-    chat.send(value);
-    setInput("");
-    setAtBottom(true);
-  };
-
   const scrollToBottom = () => {
     const element = scrollRef.current;
     if (!element) return;
@@ -164,7 +171,7 @@ export function ChatWorkspace({ chatId, initialDocs }: { chatId?: string; initia
                       <button
                         key={suggestion}
                         type="button"
-                        onClick={() => submit(suggestion)}
+                        onClick={() => send(suggestion)}
                         className="cursor-pointer rounded-xl border border-line bg-surface px-3 py-2 text-left text-[13px] leading-snug text-ink transition-colors hover:border-ink/25 hover:bg-paper"
                       >
                         {suggestion}
@@ -216,20 +223,10 @@ export function ChatWorkspace({ chatId, initialDocs }: { chatId?: string; initia
                 </div>
               )}
               <textarea
-                ref={composerRef}
-                value={input}
-                onChange={(event) => {
-                  setInput(event.target.value);
-                  const element = event.target;
-                  element.style.height = "auto";
-                  element.style.height = `${Math.min(element.scrollHeight, 176)}px`;
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
-                    event.preventDefault();
-                    submit(input);
-                  }
-                }}
+                ref={attach}
+                value={draft}
+                onChange={onChange}
+                onKeyDown={onKeyDown}
                 rows={1}
                 placeholder={
                   chat.loading
@@ -283,8 +280,8 @@ export function ChatWorkspace({ chatId, initialDocs }: { chatId?: string; initia
                   ) : (
                     <button
                       type="button"
-                      onClick={() => submit(input)}
-                      disabled={!input.trim() || chat.loading}
+                      onClick={submitDraft}
+                      disabled={!draft.trim() || chat.loading}
                       aria-label="Send message"
                       className="grid size-9 cursor-pointer place-items-center rounded-full bg-ink text-paper transition-opacity disabled:opacity-30"
                     >
