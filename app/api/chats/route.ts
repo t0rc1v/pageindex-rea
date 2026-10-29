@@ -1,13 +1,35 @@
 import { deleteAllChats, listChats } from "@/lib/server/chats";
-import { jsonResponse } from "@/lib/server/http";
+import { CHAT_LIST_SCOPE_PARAM, parseChatListScope } from "@/lib/chat-scope";
+import { jsonResponse, searchParams } from "@/lib/server/http";
 import { RATE_LIMITS } from "@/lib/server/limits";
 import { rateLimit, rateLimited } from "@/lib/server/rate-limit";
 import { requireTenant } from "@/lib/server/tenant";
 
-/** GET /api/chats — the caller's Recents, newest first. */
-export async function GET() {
+/**
+ * GET /api/chats — Recents, or one document's Chat menu with `?docId=`.
+ *
+ * The two are disjoint: Recents never contains a chat born in a document.
+ */
+export async function GET(request: Request) {
   const { tenantId, userId } = await requireTenant();
-  return jsonResponse({ chats: await listChats(tenantId, userId) });
+
+  const scope = parseChatListScope(searchParams(request).get(CHAT_LIST_SCOPE_PARAM));
+  if (!scope) {
+    // A malformed id cannot match a row, and Postgres would raise a cast error
+    // instead of returning an empty list.
+    return jsonResponse(
+      { error: "That document id is not valid.", code: "INTERNAL", status: 400 },
+      { status: 400 },
+    );
+  }
+
+  return jsonResponse({
+    chats: await listChats(
+      tenantId,
+      userId,
+      scope.kind === "document" ? { docId: scope.docId } : {},
+    ),
+  });
 }
 
 /** DELETE /api/chats — clear the caller's conversations (settings action). */

@@ -154,6 +154,7 @@ async function putChat(chat: StoredChat): Promise<void> {
       title: chat.title,
       createdAt: chat.createdAt,
       scopeDocs: chat.docs,
+      ...(chat.originDocId ? { originDocId: chat.originDocId } : {}),
       turns: chat.turns,
     }),
   });
@@ -169,6 +170,7 @@ function rememberChat(chat: StoredChat) {
     updatedAt: chat.updatedAt,
     docIds: chat.docIds,
     docs: chat.docs,
+    ...(chat.originDocId ? { originDocId: chat.originDocId } : {}),
     turns: [],
   };
 

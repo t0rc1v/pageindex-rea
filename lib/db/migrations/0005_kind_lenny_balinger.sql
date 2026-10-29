@@ -1,0 +1,2 @@
+ALTER TABLE "chats" ADD COLUMN "origin_doc_id" text;--> statement-breakpoint
+CREATE INDEX "chats_tenant_author_origin_updated_idx" ON "chats" USING btree ("tenant_id","created_by","origin_doc_id","updated_at" DESC NULLS LAST);

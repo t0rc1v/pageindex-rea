@@ -1,11 +1,11 @@
 import "server-only";
 
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import type { DocRef, StoredCitation, StoredChat, StoredTool } from "@/lib/chat-types";
 import { getDb } from "@/lib/db";
-import { chatRuns, chatTurns, chats } from "@/lib/db/schema";
+import { chatRuns, chatTurns, chats, documents } from "@/lib/db/schema";
 
 /**
  * Conversations, scoped twice.
@@ -79,6 +79,12 @@ export const chatPayloadSchema = z
     /** Preserved from the browser so imported conversations keep their order. */
     createdAt: z.number().int().positive().optional(),
     scopeDocs: z.array(docRefSchema).max(50).default([]),
+    /**
+     * Set once, by the document reader that creates the chat. An update cannot
+     * move a conversation between Recents and a document's Chat menu. This is
+     * the document's PageIndex id, the same value `scopeDocs[].id` holds.
+     */
+    originDocId: z.string().trim().min(1).max(200).nullish(),
     turns: z.array(turnSchema).max(MAX_TURNS),
   })
   // A save rewrites every run in one INSERT, and Postgres caps bind parameters.
@@ -96,22 +102,61 @@ export class ChatConflictError extends Error {
   }
 }
 
-/** Recents only needs the header; `turns` stays empty on purpose. */
+/**
+ * The chat names a document this tenant cannot read. Without this check the
+ * column would accept any string, including another workspace's document id.
+ */
+export class ChatDocumentError extends Error {
+  constructor() {
+    super("That document is not available.");
+    this.name = "ChatDocumentError";
+  }
+}
+
+async function tenantOwnsDocument(tenantId: string, docId: string): Promise<boolean> {
+  const [row] = await getDb()
+    .select({ id: documents.id })
+    .from(documents)
+    .where(and(eq(documents.pageindexId, docId), eq(documents.tenantId, tenantId)))
+    .limit(1);
+
+  return Boolean(row);
+}
+
+/**
+ * One list at a time, and never both.
+ *
+ * Recents is the default and means chats that were *not* born in a document;
+ * passing `docId` swaps in that document's Chat menu. They are disjoint by
+ * construction, which is why the sidebar and the reader can share one store
+ * cache without either list leaking into the other.
+ *
+ * Headers only — `turns` stays empty on purpose.
+ */
 export async function listChats(
   tenantId: string,
   userId: string,
-  limit = 60,
+  options: { docId?: string; limit?: number } = {},
 ): Promise<StoredChat[]> {
+  const { docId, limit = 60 } = options;
+
   const rows = await getDb()
     .select({
       id: chats.id,
       title: chats.title,
       scopeDocs: chats.scopeDocs,
+      originDocId: chats.originDocId,
       createdAt: chats.createdAt,
       updatedAt: chats.updatedAt,
     })
     .from(chats)
-    .where(and(eq(chats.tenantId, tenantId), eq(chats.createdBy, userId)))
+    .where(
+      and(
+        eq(chats.tenantId, tenantId),
+        eq(chats.createdBy, userId),
+        docId ? eq(chats.originDocId, docId) : isNull(chats.originDocId),
+      ),
+    )
     .orderBy(desc(chats.updatedAt))
     .limit(limit);
 
@@ -122,6 +167,7 @@ export async function listChats(
     updatedAt: row.updatedAt.getTime(),
     docIds: row.scopeDocs.map((doc) => doc.id),
     docs: row.scopeDocs,
+    ...(row.originDocId ? { originDocId: row.originDocId } : {}),
     turns: [],
   }));
 }
@@ -154,6 +200,7 @@ export async function getChat(
     updatedAt: row.updatedAt.getTime(),
     docIds: row.scopeDocs.map((doc) => doc.id),
     docs: row.scopeDocs,
+    ...(row.originDocId ? { originDocId: row.originDocId } : {}),
     turns: row.turns.map((turn) => ({
       // Database ids are never shown to the browser; they only need to be
       // stable for the duration of a load.
@@ -198,6 +245,13 @@ export async function saveChat(
     .returning({ id: chats.id });
 
   if (updated.length === 0) {
+    // Origin is set on the insert and never rewritten: a conversation cannot
+    // move between Recents and a document by being saved again.
+    const originDocId = payload.originDocId ?? null;
+    if (originDocId && !(await tenantOwnsDocument(tenantId, originDocId))) {
+      throw new ChatDocumentError();
+    }
+
     const inserted = await db
       .insert(chats)
       .values({
@@ -206,6 +260,7 @@ export async function saveChat(
         createdBy: userId,
         title: payload.title,
         scopeDocs: payload.scopeDocs,
+        originDocId,
         createdAt: payload.createdAt ? new Date(payload.createdAt) : now,
         updatedAt: now,
       })

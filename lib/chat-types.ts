@@ -75,5 +75,12 @@ export interface StoredChat {
   updatedAt: number;
   docIds: string[];
   docs: DocRef[];
+  /**
+   * Where the conversation was started from, when that was a document's reader
+   * rather than `/chat`. A chat born in a document is listed under that
+   * document's Chat menu and stays out of Recents; `docs`/`docIds` remain the
+   * question's scope and are unrelated to this.
+   */
+  originDocId?: string;
   turns: StoredTurn[];
 }
