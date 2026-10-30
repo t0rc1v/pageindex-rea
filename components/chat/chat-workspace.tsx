@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { useFetch } from "@/lib/client/hooks";
+import { fetchPageContext } from "@/lib/page-context";
 import type { Citation } from "@/lib/pageindex/types";
 import type { DocumentListResponse } from "@/lib/pageindex/types";
 import { Onboarding } from "@/components/onboarding";
@@ -122,16 +123,12 @@ export function ChatWorkspace({ chatId, initialDocs }: { chatId?: string; initia
         return;
       }
       try {
-        const response = await fetch(
-          `/api/docs/${encodeURIComponent(doc.docId)}/pages?from=${doc.page}&to=${doc.page}`,
-        );
-        if (!response.ok) throw new Error(`Page fetch failed (${response.status})`);
-        const payload = (await response.json()) as {
-          pages: Array<{ page_index: number; markdown: string }>;
-        };
-        const text = payload.pages?.[0]?.markdown ?? "";
-        if (!text.trim()) throw new Error("That page has no text to attach");
-        chat.addContext({ docId: doc.docId, docName: doc.name, page: doc.page, text });
+        const entry = await fetchPageContext({
+          docId: doc.docId,
+          docName: doc.name,
+          page: doc.page,
+        });
+        chat.addContext(entry);
         toast.success(`Page ${doc.page} attached to your next question`);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Could not attach the page");

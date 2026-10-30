@@ -268,6 +268,7 @@ export function DocView({ docId }: { docId: string }) {
           docId={docId}
           docName={docName}
           chatId={activeChatId}
+          page={page}
           pending={pendingChat}
           onPendingSent={clearPending}
           chats={docChats}
