@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import type { StoredChat } from "@/lib/chat-types";
 import type { Citation } from "@/lib/pageindex/types";
-import { fetchPageContext } from "@/lib/page-context";
+import { fetchPageContext, type PageContext } from "@/lib/page-context";
 import { ChatTranscript } from "@/components/chat/chat-transcript";
 import { useChat } from "@/components/chat/use-chat";
 import { useComposer } from "@/components/chat/use-composer";
@@ -41,6 +41,7 @@ export function DocChatPanel({
   chatId,
   page,
   pending,
+  fresh,
   onPendingSent,
   resize,
   chats,
@@ -58,6 +59,8 @@ export function DocChatPanel({
   /** The page on screen, pinned into every question asked from here. */
   page: number;
   pending: PendingMessage | null;
+  /** This chat was minted in this tab; there is nothing stored to hydrate. */
+  fresh: boolean;
   onPendingSent: () => void;
   /** Draggable width, owned by the reader so the tree can react to it. */
   resize: PanelWidth;
@@ -72,15 +75,20 @@ export function DocChatPanel({
 }) {
   // Stable identity: `useChat` refetches when `initialDocs` changes, and a fresh
   // literal every render would be an infinite load loop.
-  // Stable identity: `useChat` refetches when `initialDocs` changes, and a fresh
-  // literal every render would be an infinite load loop.
   const initialDocs = useMemo(() => [{ id: docId, name: docName }], [docId, docName]);
-  const chat = useChat({ chatId, initialDocs, originDocId: docId });
+  const chat = useChat({
+    chatId,
+    initialDocs,
+    originDocId: docId,
+    skipHydration: fresh,
+  });
 
   const { addContext, removeContext, send } = chat;
   const fired = useRef<string | null>(null);
   /** The one page this panel pinned last, so a new page replaces it. */
   const autoPin = useRef<{ docId: string; page: number } | null>(null);
+  /** The entry behind `autoPin`, so a follow-up does not re-fetch the same page. */
+  const pinnedEntry = useRef<PageContext | null>(null);
   /** A page the reader removed by hand: no second automatic pin until they move. */
   const skipPin = useRef<{ docId: string; page: number } | null>(null);
 
@@ -98,6 +106,19 @@ export function DocChatPanel({
     }
     if (skipPin.current) return;
 
+    // Already pinned for this page: reuse the text instead of paying another
+    // round trip before every follow-up.
+    const previousEntry = pinnedEntry.current;
+    if (
+      autoPin.current?.docId === docId &&
+      autoPin.current.page === page &&
+      previousEntry?.docId === docId &&
+      previousEntry.page === page
+    ) {
+      addContext(previousEntry);
+      return;
+    }
+
     const entry = await fetchPageContext({ docId, docName, page });
 
     const previous = autoPin.current;
@@ -105,17 +126,21 @@ export function DocChatPanel({
       removeContext(previous.docId, previous.page);
     }
 
+    pinnedEntry.current = entry;
     addContext(entry);
     autoPin.current = { docId, page };
   }, [addContext, removeContext, docId, docName, page]);
 
-  /** Ask, with the current page attached. A failed pin never blocks the question. */
+  /**
+   * Ask, with the current page attached.
+   *
+   * The send is not awaited on the pin: the turn and the stop button appear
+   * now, and `useChat` holds the request until the page text is in `context`.
+   * A failed pin never blocks the question.
+   */
   const ask = useCallback(
     (text: string) => {
-      void (async () => {
-        await pinPage().catch(() => undefined);
-        send(text);
-      })();
+      send(text, { beforeStream: pinPage() });
     },
     [pinPage, send],
   );
@@ -162,10 +187,13 @@ export function DocChatPanel({
         aria-label="Document chat"
         style={resize.style}
         className={cn(
-          "relative z-50 flex min-h-0 flex-col bg-surface",
+          "z-50 flex min-h-0 flex-col bg-surface",
           "fixed inset-x-0 bottom-0 top-10 rounded-t-2xl border border-line shadow-2xl",
           "md:inset-x-auto md:left-auto md:right-0 md:top-0 md:w-[420px] md:rounded-none md:border-0 md:border-l",
-          "xl:static xl:z-auto xl:h-full xl:w-[var(--panel-width)] xl:shrink-0 xl:border-l xl:shadow-none",
+          // Keep `relative` when docked: the resize grip is absolutely positioned
+          // against this panel, and `static` would anchor it to the app shell.
+          // `inset-auto` clears the sheet offsets a relative box would obey.
+          "xl:relative xl:inset-auto xl:z-auto xl:h-full xl:w-[var(--panel-width)] xl:shrink-0 xl:border-l xl:shadow-none",
         )}
       >
         <PanelResizeHandle

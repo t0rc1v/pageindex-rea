@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDown, Paperclip, Plus, X } from "lucide-react";
+import { ArrowDown, Paperclip, Plus, Square, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -272,7 +272,7 @@ export function ChatWorkspace({ chatId, initialDocs }: { chatId?: string; initia
                     aria-label="Stop generating"
                     className="mb-0.5 grid size-9 shrink-0 cursor-pointer place-items-center rounded-full border border-line text-ink transition-colors hover:bg-paper"
                   >
-                    <span className="size-2.5 rounded-sm bg-ink" aria-hidden />
+                    <Square className="size-3 fill-current" aria-hidden />
                   </button>
                 ) : (
                   <button

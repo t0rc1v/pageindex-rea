@@ -230,7 +230,7 @@ test.describe("conversation surface", () => {
     expect(settled!.y + settled!.height).toBeLessThanOrEqual(900);
   });
 
-  test("the document panel resizes from the keyboard", async ({ page }) => {
+  test("the document panel resizes by pointer or keyboard", async ({ page }) => {
     await page.goto("/chat");
     await page.getByPlaceholder(/Ask a question/).fill("Summarize the key findings.");
     await page.getByLabel("Send message").click();
@@ -244,11 +244,27 @@ test.describe("conversation surface", () => {
     const handle = page.getByRole("separator", { name: "Resize document panel" });
     await expect(handle).toBeVisible();
 
-    // Same grip as before, now operable without a mouse.
+    // The grip must sit on the panel's edge. It used to be positioned against
+    // the app shell instead (the panel was `static`), so dragging the visible
+    // edge did nothing while the test's keyboard path still passed.
     const before = Math.round((await viewer.boundingBox())!.width);
+    const panelBox = (await viewer.boundingBox())!;
+    const handleBox = (await handle.boundingBox())!;
+    expect(Math.abs(handleBox.x - panelBox.x)).toBeLessThanOrEqual(1);
+
+    const startX = handleBox.x + handleBox.width / 2;
+    await page.mouse.move(startX, handleBox.y + 80);
+    await page.mouse.down();
+    await page.mouse.move(startX - 60, handleBox.y + 80, { steps: 5 });
+    await page.mouse.up();
+
+    const dragged = before + 60;
+    await expect.poll(async () => Math.round((await viewer.boundingBox())!.width)).toBe(dragged);
+
+    // Same grip, now operable without a mouse.
     await handle.focus();
     await page.keyboard.press("ArrowLeft");
-    await expect.poll(async () => Math.round((await viewer.boundingBox())!.width)).toBe(before + 16);
+    await expect.poll(async () => Math.round((await viewer.boundingBox())!.width)).toBe(dragged + 16);
   });
 
   test("appearance switches the transcript and theme", async ({ page }) => {

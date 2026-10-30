@@ -103,7 +103,12 @@ export function DocumentPanel({
         className={cn(
           "z-50 flex min-h-0 flex-col bg-surface",
           "fixed inset-x-0 bottom-0 top-8 rounded-t-2xl border border-line shadow-2xl",
-          "relative lg:static lg:z-auto lg:h-full lg:w-[var(--panel-width)] lg:rounded-none lg:border-0 lg:border-l lg:shadow-none",
+          // `relative`, never `static`, at the docked breakpoint: the grip is
+          // positioned on this panel's left edge, and `static` handed that
+          // containing block back to the app shell, leaving the grip at the
+          // content's left edge where dragging did nothing. `inset-auto` clears
+          // the sheet's offsets, which a relative box would otherwise obey.
+          "lg:relative lg:inset-auto lg:z-auto lg:h-full lg:w-[var(--panel-width)] lg:rounded-none lg:border-0 lg:border-l lg:shadow-none",
           className,
         )}
         style={width.style}

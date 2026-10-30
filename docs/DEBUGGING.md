@@ -59,6 +59,7 @@ Signatures that are repo-specific:
 | `Could not validate \`instant\` … [cause]: NEXT_REDIRECT` on `/` | a page tried to be a redirect (removed in favour of a config redirect) | keep `/` out of `app/`; the 307 lives in `next.config.ts` |
 | `net::ERR_INVALID_HTTP_RESPONSE` on `/_next/hmr` + `Blocked cross-origin request` | the dev server trusts `localhost`; you opened `127.0.0.1` | already allowed via `allowedDevOrigins` — restart if it reappears |
 | `hydrateChats … 500` | see the section above | — |
+| `Error [AI_InvalidPromptError]: Invalid prompt: System messages are not allowed in the prompt or messages fields` when a question carries a pinned page | AI SDK 7 rejects system messages in `messages`; the pinned-page preamble is one | `lib/pageindex/mcp-chat.ts` lifts system messages into `instructions` (`mcpPrompt`) — keep them there |
 | `Route /x is rendering with server caches disabled` | a hard reload sent `Cache-Control: no-cache` | informational, not a bug |
 
 Anything that is *not* on this list is likely generic Next/React/Clerk

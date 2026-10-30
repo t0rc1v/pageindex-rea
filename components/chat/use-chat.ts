@@ -51,6 +51,15 @@ export interface ChatDoc {
   name: string;
 }
 
+export interface SendOptions {
+  /**
+   * Work that must finish before the request leaves — the reader pinning the
+   * page on screen. The user turn and the stop button appear immediately; only
+   * the stream waits. A failure here must not swallow the question.
+   */
+  beforeStream?: Promise<unknown>;
+}
+
 function emptyRun(): ChatRun {
   return { blocks: {}, citations: [], tools: [] };
 }
@@ -166,7 +175,7 @@ export interface UseChatResult {
   busy: boolean;
   /** Hydrating a stored conversation; the transcript is not ready to answer. */
   loading: boolean;
-  send: (text: string) => void;
+  send: (text: string, options?: SendOptions) => void;
   regenerate: () => void;
   selectRun: (turnId: string, index: number) => void;
   setFeedback: (turnId: string, value: "up" | "down") => void;
@@ -192,13 +201,23 @@ export function useChat(options: {
   initialDocs?: ChatDoc[];
   /** Set when this conversation was started inside a document's reader. */
   originDocId?: string;
+  /**
+   * This id was minted in this tab and has no stored row yet. Skipping the fetch
+   * is what makes the first message appear without a `GET /api/chats/:id`
+   * round trip and a skeleton in between. Read once on mount: the panel is keyed
+   * by chat id, so a fresh chat is exactly the mount that must skip.
+   */
+  skipHydration?: boolean;
 }): UseChatResult {
   const [chatId, setChatId] = useState<string | null>(options.chatId ?? null);
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [docs, setDocsState] = useState<ChatDoc[]>(options.initialDocs ?? []);
+  const skipHydration = useRef(Boolean(options.skipHydration));
   // A stored chat starts loading and is only cleared once its payload lands; the
   // page remounts per chat id, so a navigation never shows stale turns.
-  const [loading, setLoading] = useState(Boolean(options.chatId));
+  const [loading, setLoading] = useState(
+    Boolean(options.chatId) && !options.skipHydration,
+  );
   const [library, setLibrary] = useState<ChatDoc[]>(options.initialDocs ?? []);
   const [context, setContext] = useState<PageContext[]>([]);
   const [busy, setBusy] = useState(false);
@@ -207,6 +226,11 @@ export function useChat(options: {
   // only needed once the first turn is persisted.
   const createdAt = useRef<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // A send may wait for a page pin before it opens its stream. Stopping during
+  // that wait must cancel the run, not just hide the stop button.
+  const runToken = useRef(0);
+  /** Removes the assistant placeholder of a send that has not opened its stream. */
+  const cancelPending = useRef<(() => void) | null>(null);
   const docsRef = useRef(docs);
   const turnsRef = useRef(turns);
   const contextRef = useRef(context);
@@ -218,7 +242,7 @@ export function useChat(options: {
   // Recents with today's timestamp.
   useEffect(() => {
     const id = options.chatId;
-    if (!id) return;
+    if (!id || skipHydration.current) return;
 
     let cancelled = false;
 
@@ -275,6 +299,10 @@ export function useChat(options: {
   }, []);
 
   const stop = useCallback(() => {
+    runToken.current += 1;
+    // If the stream has not opened yet, the placeholder would otherwise sit on
+    // "Thinking…" forever — there is no run whose finally block can settle it.
+    cancelPending.current?.();
     abortRef.current?.abort();
     abortRef.current = null;
     setBusy(false);
@@ -552,7 +580,7 @@ export function useChat(options: {
   );
 
   const send = useCallback(
-    (raw: string) => {
+    (raw: string, options?: SendOptions) => {
       const text = raw.trim();
       if (!text || busy || loading) return;
       const userTurn: ChatTurn = {
@@ -575,8 +603,33 @@ export function useChat(options: {
       const nextTurns = [...base, assistantTurn];
       setTurns(nextTurns);
       turnsRef.current = nextTurns;
+      // Mark busy in the same tick as the turns: the message and the stop button
+      // must not wait for the request (or a page pin) to begin.
       setBusy(true);
-      startRun(base, assistantId, 0);
+
+      const token = (runToken.current += 1);
+      const abandon = () => {
+        cancelPending.current = null;
+        const next = turnsRef.current.filter((turn) => turn.id !== assistantId);
+        if (next.length === turnsRef.current.length) return;
+        turnsRef.current = next;
+        setTurns(next);
+      };
+      const begin = () => {
+        if (runToken.current !== token) {
+          abandon();
+          return;
+        }
+        cancelPending.current = null;
+        startRun(base, assistantId, 0);
+      };
+
+      if (options?.beforeStream) {
+        cancelPending.current = abandon;
+        void options.beforeStream.catch(() => undefined).then(begin);
+      } else {
+        begin();
+      }
     },
     [busy, loading, startRun],
   );

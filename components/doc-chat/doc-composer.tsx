@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, Lock } from "lucide-react";
+import { ArrowUp } from "lucide-react";
 import { useEffect } from "react";
 
 import { useComposer } from "@/components/chat/use-composer";
@@ -8,20 +8,22 @@ import { useComposer } from "@/components/chat/use-composer";
 /**
  * The reader's own composer: one row, pinned under the page.
  *
- * Gloss's proportions, not `/chat`'s: a single line that grows to three, a
- * round send button, and the document it is asking about stated on the left as a
- * lock rather than a picker. The scope is not a choice here — that is what makes
- * the first message a new conversation *about this document*.
+ * Gloss's proportions, not `/chat`'s: a single line that grows to three and a
+ * round send button. The scope is not a choice here — that is what makes the
+ * first message a new conversation *about this document*.
+ *
+ * The scope used to be restated as a locked chip on the left. It cost a third of
+ * the row on a narrow reader pane while telling the reader something the header
+ * already says, so the document now lives in the placeholder and the panel
+ * title; the composer gives all its width to the question.
  *
  * Sending starts a new chat; it never appends to the one already in the panel.
  * That one has its own composer, inside the panel.
  */
 export function DocComposer({
-  docName,
   disabled,
   onSend,
 }: {
-  docName: string;
   disabled?: boolean;
   onSend: (text: string) => void;
 }) {
@@ -48,14 +50,6 @@ export function DocComposer({
         }}
       >
         <div className="flex items-end gap-1.5 rounded-[16px] border border-line bg-surface px-2 py-1.5 shadow-sm transition-colors focus-within:border-ink/30">
-          <span
-            className="mb-1 hidden shrink-0 items-center gap-1 rounded-md bg-paper px-1.5 py-1 text-[10.5px] leading-none text-ink-muted sm:flex"
-            title={`Scoped to ${docName}`}
-          >
-            <Lock className="size-2.5" aria-hidden />
-            <span className="max-w-[150px] truncate">{docName.replace(/\.pdf$/i, "")}</span>
-          </span>
-
           <textarea
             ref={attach}
             value={value}
