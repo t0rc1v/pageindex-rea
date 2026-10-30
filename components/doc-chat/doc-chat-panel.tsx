@@ -267,14 +267,14 @@ export function DocChatPanel({
             </div>
           )}
 
-          <div className="flex items-end gap-1.5 rounded-[14px] border border-line bg-surface px-2 py-1.5 transition-colors focus-within:border-ink/30">
+          <div className="flex items-end gap-1.5 rounded-[16px] border border-line bg-surface px-2 py-1.5 transition-colors focus-within:border-ink/30">
             <textarea
               ref={attach}
               value={draft}
               onChange={onChange}
               onKeyDown={onKeyDown}
               rows={1}
-              placeholder={chat.busy ? "Answering…" : "Ask a follow-up…"}
+              placeholder={chat.busy ? "AI is thinking…" : "Ask a follow-up…"}
               aria-label="Ask a follow-up"
               className="max-h-24 min-h-[32px] min-w-0 flex-1 resize-none bg-transparent px-1 py-1.5 text-[13px] leading-relaxed text-ink outline-none placeholder:text-ink-muted/70"
             />
@@ -284,7 +284,7 @@ export function DocChatPanel({
                 type="button"
                 onClick={chat.stop}
                 aria-label="Stop generating"
-                className="mb-0.5 grid size-8 shrink-0 cursor-pointer place-items-center rounded-full border border-line text-ink transition-colors hover:bg-paper"
+                className="mb-0.5 grid size-9 shrink-0 cursor-pointer place-items-center rounded-full border border-line text-ink transition-colors hover:bg-paper"
               >
                 <Square className="size-3 fill-current" aria-hidden />
               </button>
@@ -294,7 +294,7 @@ export function DocChatPanel({
                 onClick={submitDraft}
                 disabled={!draft.trim() || chat.loading}
                 aria-label="Send message"
-                className="mb-0.5 grid size-8 shrink-0 cursor-pointer place-items-center rounded-full bg-ink text-paper transition-opacity disabled:cursor-not-allowed disabled:opacity-30"
+                className="mb-0.5 grid size-9 shrink-0 cursor-pointer place-items-center rounded-full bg-ink text-paper transition-opacity disabled:cursor-not-allowed disabled:opacity-30"
               >
                 <ArrowUp className="size-4" aria-hidden />
               </button>
