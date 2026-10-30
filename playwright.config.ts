@@ -73,9 +73,11 @@ export default defineConfig({
         PAGEINDEX_API_URL: "http://127.0.0.1:4319",
         PAGEINDEX_API_KEY: "test-key",
         OPENAI_API_KEY: "",
-        // The suite uploads on every run; the production ceiling would throttle
-        // it within the hour. The limit itself is still exercised, just higher.
+        // The suite uploads and clears conversations on every run; the production
+        // ceilings would throttle it within the hour. The limits themselves are
+        // still exercised, just higher.
         RATE_LIMIT_UPLOADS_PER_HOUR: "500",
+        RATE_LIMIT_CHAT_CLEARS_PER_HOUR: "500",
       },
     },
   ],

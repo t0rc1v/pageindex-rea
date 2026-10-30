@@ -118,6 +118,52 @@ export async function folderPathMap(tenantId: string): Promise<Map<string, strin
   return paths;
 }
 
+/**
+ * Rename or re-describe a folder. `undefined` means "leave it alone"; `null`
+ * clears the description. Returns null when the folder is not this tenant's.
+ */
+export async function updateFolder(
+  tenantId: string,
+  folderId: string,
+  input: { name?: string; description?: string | null },
+): Promise<FolderRecord | null> {
+  const patch: { name?: string; description?: string | null; updatedAt: Date } = {
+    updatedAt: new Date(),
+  };
+  if (input.name !== undefined) patch.name = input.name;
+  if (input.description !== undefined) patch.description = input.description;
+
+  const [row] = await getDb()
+    .update(folders)
+    .set(patch)
+    .where(and(eq(folders.tenantId, tenantId), eq(folders.id, folderId)))
+    .returning({
+      id: folders.id,
+      name: folders.name,
+      description: folders.description,
+      parentId: folders.parentId,
+      createdAt: folders.createdAt,
+      updatedAt: folders.updatedAt,
+    });
+
+  if (!row) return null;
+
+  const [counts] = await getDb()
+    .select({
+      fileCount: sql<number>`(select count(*)::int from ${documents} where ${documents.folderId} = ${folders.id})`,
+      childrenCount: sql<number>`(select count(*)::int from "folders" as child where child."parent_id" = ${folders.id})`,
+    })
+    .from(folders)
+    .where(and(eq(folders.tenantId, tenantId), eq(folders.id, folderId)))
+    .limit(1);
+
+  return {
+    ...row,
+    fileCount: counts?.fileCount ?? 0,
+    childrenCount: counts?.childrenCount ?? 0,
+  };
+}
+
 /** Shape the API layer and the library UI already speak. */
 export function toFolderResponse(folder: FolderRecord) {
   return {

@@ -200,7 +200,7 @@ it again. Never migrate on app boot either — every instance would race.
 /api/chats            GET  Recents · DELETE all of the caller's conversations
 /api/chats/[chatId]   GET full conversation · PUT upsert · PATCH rename · DELETE
 /api/folders          GET list · POST create — workspace folders in Postgres
-/api/folders/[id]     DELETE — unfiles its documents, removes nested folders
+/api/folders/[id]     PATCH rename/describe · DELETE — unfiles its documents, removes nested folders
 ```
 
 ## Architecture
