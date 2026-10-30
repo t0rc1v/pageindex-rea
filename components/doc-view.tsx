@@ -20,6 +20,7 @@ import { PageReader } from "@/components/page-reader";
 import { TreeOutline } from "@/components/tree-outline";
 import { Button, ErrorPanel, Skeleton, Spinner, StatusBadge, cn } from "@/components/ui-kit";
 import { useMediaQuery } from "@/hooks/use-media";
+import { usePanelWidth } from "@/hooks/use-panel-width";
 
 const isCompleted = (doc: PageIndexDocument) => doc.status === "completed";
 
@@ -81,7 +82,17 @@ export function DocView({ docId }: { docId: string }) {
   // Wide enough for tree + page + panel to coexist. Below this the panel covers
   // the page instead, so something has to give — the tree goes.
   const docked = useMediaQuery("(min-width: 1280px)");
-  const treeMakingWay = chatOpen && !docked;
+
+  // Below 1280 px the panel covers the page instead of docking, so its width
+  // only matters when docked. Past 480 px the tree is what gives way; the
+  // derived flag means closing the panel brings it straight back.
+  const chatPanel = usePanelWidth({
+    storageKey: "pageindex-reader/doc-chat-width",
+    min: 380,
+    max: 560,
+    initial: 420,
+  });
+  const treeMakingWay = chatOpen && (!docked || chatPanel.width > 480);
   const showTree = showTreePref && !treeMakingWay;
 
   // Keep the address bar shareable: a citation link restores page + block.
@@ -270,6 +281,7 @@ export function DocView({ docId }: { docId: string }) {
           chatId={activeChatId}
           page={page}
           pending={pendingChat}
+          resize={chatPanel}
           onPendingSent={clearPending}
           chats={docChats}
           activeId={activeChatId}

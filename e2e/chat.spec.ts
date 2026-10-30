@@ -230,6 +230,27 @@ test.describe("conversation surface", () => {
     expect(settled!.y + settled!.height).toBeLessThanOrEqual(900);
   });
 
+  test("the document panel resizes from the keyboard", async ({ page }) => {
+    await page.goto("/chat");
+    await page.getByPlaceholder(/Ask a question/).fill("Summarize the key findings.");
+    await page.getByLabel("Send message").click();
+
+    const chip = page.getByRole("button", { name: /^Citation 1:/ });
+    await expect(chip).toBeVisible({ timeout: 30_000 });
+    await chip.click();
+    await page.getByRole("button", { name: /Open page/ }).click();
+
+    const viewer = page.getByLabel("Document viewer");
+    const handle = page.getByRole("separator", { name: "Resize document panel" });
+    await expect(handle).toBeVisible();
+
+    // Same grip as before, now operable without a mouse.
+    const before = Math.round((await viewer.boundingBox())!.width);
+    await handle.focus();
+    await page.keyboard.press("ArrowLeft");
+    await expect.poll(async () => Math.round((await viewer.boundingBox())!.width)).toBe(before + 16);
+  });
+
   test("appearance switches the transcript and theme", async ({ page }) => {
     await page.goto("/settings");
     await page.getByRole("button", { name: "Dark", exact: true }).click();

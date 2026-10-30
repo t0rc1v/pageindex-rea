@@ -9,7 +9,9 @@ import { fetchPageContext } from "@/lib/page-context";
 import { ChatTranscript } from "@/components/chat/chat-transcript";
 import { useChat } from "@/components/chat/use-chat";
 import { useComposer } from "@/components/chat/use-composer";
+import { PanelResizeHandle } from "@/components/panel-resize-handle";
 import { Skeleton, cn } from "@/components/ui-kit";
+import type { PanelWidth } from "@/hooks/use-panel-width";
 import { DocChatMenu } from "./doc-chat-menu";
 import type { PendingMessage } from "./use-doc-chat";
 
@@ -40,6 +42,7 @@ export function DocChatPanel({
   page,
   pending,
   onPendingSent,
+  resize,
   chats,
   activeId,
   onSelect,
@@ -56,6 +59,8 @@ export function DocChatPanel({
   page: number;
   pending: PendingMessage | null;
   onPendingSent: () => void;
+  /** Draggable width, owned by the reader so the tree can react to it. */
+  resize: PanelWidth;
   chats: StoredChat[];
   activeId: string | null;
   onSelect: (id: string) => void;
@@ -155,13 +160,23 @@ export function DocChatPanel({
 
       <aside
         aria-label="Document chat"
+        style={resize.style}
         className={cn(
-          "z-50 flex min-h-0 flex-col bg-surface",
+          "relative z-50 flex min-h-0 flex-col bg-surface",
           "fixed inset-x-0 bottom-0 top-10 rounded-t-2xl border border-line shadow-2xl",
           "md:inset-x-auto md:left-auto md:right-0 md:top-0 md:w-[420px] md:rounded-none md:border-0 md:border-l",
-          "xl:static xl:z-auto xl:h-full xl:w-[420px] xl:shrink-0 xl:border-l xl:shadow-none",
+          "xl:static xl:z-auto xl:h-full xl:w-[var(--panel-width)] xl:shrink-0 xl:border-l xl:shadow-none",
         )}
       >
+        <PanelResizeHandle
+          label="Resize chat panel"
+          width={resize.width}
+          min={resize.min}
+          max={resize.max}
+          onPointerDown={resize.onPointerDown}
+          onKeyDown={resize.onKeyDown}
+          className="hidden xl:block"
+        />
         <div className="flex shrink-0 justify-center pt-2 md:hidden">
           <span className="h-1 w-9 rounded-full bg-line" aria-hidden />
         </div>
