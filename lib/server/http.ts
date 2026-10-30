@@ -1,5 +1,20 @@
 import { PageIndexError, hasApiKey } from "../pageindex/client";
 
+/**
+ * A request that was abandoned, rather than one that failed.
+ *
+ * `fetch` rejects with a `DOMException` on Node's undici, but other abort paths
+ * hand back a plain `Error` that only carries the name — so match on the name.
+ */
+function isAbort(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    (error as { name?: unknown }).name === "AbortError"
+  );
+}
+
 const NO_STORE = {
   "Cache-Control": "no-store, max-age=0",
 } as const;
@@ -40,6 +55,15 @@ export function errorResponse(error: unknown): Response {
       status: 504,
     };
     return jsonResponse(body, { status: 504 });
+  }
+
+  /**
+   * The caller hung up — a reader turned the page, a panel closed, a navigation
+   * replaced the route. Nothing went wrong and nobody is listening, so this is
+   * neither an error to log nor a 500 to report; 499 is nginx's name for it.
+   */
+  if (isAbort(error)) {
+    return new Response(null, { status: 499, headers: NO_STORE });
   }
 
   // Anything not modelled above is an internal failure: log it, but do not echo

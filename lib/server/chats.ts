@@ -299,7 +299,24 @@ export async function saveChat(
   if (turnRows.length > 0) statements.push(db.insert(chatTurns).values(turnRows));
   if (runRows.length > 0) statements.push(db.insert(chatRuns).values(runRows));
 
-  await db.batch(statements as [Statement, ...Statement[]]);
+  try {
+    await db.batch(statements as [Statement, ...Statement[]]);
+  } catch (error) {
+    // Deleting a chat from the menu can land while a run is still settling, so
+    // the chat row is gone by the time its turns are written. The caller already
+    // removed it; there is nothing left to save and nothing to report.
+    if (isForeignKeyViolation(error)) return;
+    throw error;
+  }
+}
+
+function isForeignKeyViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "23503"
+  );
 }
 
 export async function renameChat(
