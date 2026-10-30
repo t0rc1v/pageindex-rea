@@ -635,25 +635,29 @@ citation travels is inverted.
 
 | Piece | What shipped | Where |
 | --- | --- | --- |
-| Composer | One row under the page, scope locked to the document, `⌘K`. Sending starts a **new** chat; it never appends to the one already in the panel. | `components/doc-chat/doc-composer.tsx` |
+| Composer | One row under the page, scope locked to the document and named by the panel header rather than a chip, `⌘K`. Sending starts a **new** chat; it never appends to the one already in the panel. | `components/doc-chat/doc-composer.tsx` |
 | Composer rules | Draft, autosize to a per-surface ceiling, Enter sends / Shift+Enter newlines, nothing sends mid-IME, clear on send — one hook for all three surfaces, each keeping its own chrome and send/stop button. | `components/chat/use-composer.ts`, `lib/composer-keys.ts` |
 | Panel | Title + chat switcher, transcript, and its own composer. Stop, regenerate, edit, branch and feedback come from the shared transcript rather than a second implementation. Docked ≥1280 px, right-hand sheet 768–1279, bottom sheet under 768. | `doc-chat-panel.tsx`, `chat-transcript.tsx` |
 | Chat list | Recency-ordered, new / rename / delete, count badge; the same control renders in the reader header and in the panel header, so switching conversations never means going back first. | `doc-chat-menu.tsx` |
 | Citation direction | Chip → preview → `Open page ↗` turns the reader under the panel. Below 1280 px the panel closes first, or it would cover the page it just opened. A citation from another document opens that document's reader at its page. | `components/doc-view.tsx` |
-| Page pinning | Every question asked from the reader attaches the page on screen as an already-open page. Additive, not a filter — the document stays in scope, so answers can still cite anywhere. A new page replaces the previous automatic pin, and removing the chip retracts it until the reader turns the page. | `lib/page-context.ts`, `doc-chat-panel.tsx` |
+| Page pinning | Every question asked from the reader attaches the page on screen as an already-open page. Additive, not a filter — the document stays in scope, so answers can still cite anywhere. A new page replaces the previous automatic pin, and removing the chip retracts it until the reader turns the page. The turn and the stop button appear before the pin resolves, and a pinned page is reused on follow-ups. | `lib/page-context.ts`, `doc-chat-panel.tsx` |
 | Address bar | `?chat=` names the open conversation; `page` and `block` keep working on the same URL, and each writer preserves the others' parameters. | `use-doc-chat.ts` |
 | Panel width | Drag the grip on the docked panel's left edge, or focus it and press ←/→ (Home resets). 380–560 px, 420 by default, remembered per browser. Past 480 px the tree is what gives way, and it returns when the panel closes. | `hooks/use-panel-width.ts`, `panel-resize-handle.tsx` |
 | Storage | `chats.origin_doc_id` marks where a conversation was born — the PageIndex id, the same space `scopeDocs[].id` uses. Recents and a document's list are disjoint, and origin is written once: a later save cannot move a chat between them. | `lib/db/schema.ts`, `lib/server/chats.ts`, `lib/chat-store.ts` |
 
-Evidence: `e2e/doc-chat.spec.ts` — ten specs covering composer → panel, reload
-from `?chat=`, panel composer continues the same chat, a citation turns the
-reader without opening a second panel, the phone sheet closing on a citation, and
-the menu's list/rename/delete. The hydration guard in `e2e/fixtures.ts` also
-covers a panel opened straight from a query parameter.
+Evidence: `e2e/doc-chat.spec.ts` — eleven specs covering composer → panel, the
+first message landing before the page pin resolves, reload from `?chat=`, panel
+composer continues the same chat, pointer/keyboard panel resizing that also
+survives a reload, a citation turning the reader without opening a second panel,
+the phone sheet closing on a citation, and the menu's list/rename/delete. The
+hydration guard in `e2e/fixtures.ts` also covers a panel opened straight from a
+query parameter.
 
 All three composers share one shape now — a single row that grows to three lines,
 16 px radius, 36 px send/stop — with `/chat`'s document picker and its clear
-control inline at the left, and the context chips above. That drops the 145 px
-card §9.10 matched in the official app on purpose: one composer shape across
-three surfaces is worth more than parity in one of them.
+control inline at the left, and the context chips above. The reader's composer no
+longer repeats the document in a locked chip: the panel header already names it,
+and the row belongs to the question. That drops the 145 px card §9.10 matched in
+the official app on purpose: one composer shape across three surfaces is worth
+more than parity in one of them.
 

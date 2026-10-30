@@ -54,6 +54,8 @@ function parseContext(value: unknown): PageContextItem[] {
 /**
  * Pinned pages travel as a system message: the chat endpoints accept a document
  * scope, not a page scope, so the reader states the pages it already opened.
+ * The managed lane sends this as-is; the MCP lane lifts system messages into
+ * `instructions`, because AI SDK 7 rejects them in `messages`.
  */
 function contextMessage(items: PageContextItem[]): ChatMessage {
   const body = items

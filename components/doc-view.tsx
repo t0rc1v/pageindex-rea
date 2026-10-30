@@ -70,6 +70,7 @@ export function DocView({ docId }: { docId: string }) {
     activeId: activeChatId,
     open: chatOpen,
     pending: pendingChat,
+    freshId: freshChatId,
     startChat,
     newChat,
     openChat,
@@ -267,7 +268,7 @@ export function DocView({ docId }: { docId: string }) {
                 onPage={goToPage}
                 onClearBlock={() => setBlockOverride(null)}
               />
-              <DocComposer docName={docName} onSend={startChat} />
+              <DocComposer onSend={startChat} />
             </main>
           </div>
         )}
@@ -281,6 +282,7 @@ export function DocView({ docId }: { docId: string }) {
           chatId={activeChatId}
           page={page}
           pending={pendingChat}
+          fresh={freshChatId === activeChatId}
           resize={chatPanel}
           onPendingSent={clearPending}
           chats={docChats}

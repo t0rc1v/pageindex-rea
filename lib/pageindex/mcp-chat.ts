@@ -3,7 +3,14 @@ import "server-only";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { openai } from "@ai-sdk/openai";
-import { dynamicTool, jsonSchema, stepCountIs, streamText, type ToolSet } from "ai";
+import {
+  dynamicTool,
+  jsonSchema,
+  stepCountIs,
+  streamText,
+  type ModelMessage,
+  type ToolSet,
+} from "ai";
 
 import { PAGEINDEX_API_URL } from "./client";
 import {
@@ -104,6 +111,38 @@ function stringField(part: unknown, key: string): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+/**
+ * Split the history into instructions and conversation.
+ *
+ * AI SDK 7 rejects `role: "system"` inside `messages` by default (`Invalid
+ * prompt: System messages are not allowed in the prompt or messages fields`).
+ * Our pinned-page preamble arrives as exactly that, so it has to move to the
+ * `instructions` option; the remaining turns are user/assistant history.
+ */
+export function mcpPrompt(input: {
+  messages: ChatMessage[];
+  docs: Array<{ id: string; name: string }>;
+}): { instructions: string; messages: ModelMessage[] } {
+  const system = input.messages
+    .filter((message) => message.role === "system")
+    .map((message) => message.content.trim())
+    .filter(Boolean);
+
+  const messages = input.messages
+    .filter((message) => message.role !== "system")
+    .map(
+      (message): ModelMessage =>
+        message.role === "assistant"
+          ? { role: "assistant", content: message.content }
+          : { role: "user", content: message.content },
+    );
+
+  return {
+    instructions: [systemPrompt(input.docs), ...system].join("\n\n"),
+    messages,
+  };
+}
+
 /** Open the MCP session, expose its read tools, and stream the agent's answer. */
 export async function* openMcpChatStream(input: {
   messages: ChatMessage[];
@@ -172,13 +211,11 @@ export async function* openMcpChatStream(input: {
 
     yield { type: "block", index: 0 };
 
+    const prompt = mcpPrompt({ messages: input.messages, docs: input.docs });
     const result = streamText({
       model: openai(llmModelName()),
-      system: systemPrompt(input.docs),
-      messages: input.messages.map((message) => ({
-        role: message.role,
-        content: message.content,
-      })),
+      instructions: prompt.instructions,
+      messages: prompt.messages,
       tools: toolSet,
       stopWhen: stepCountIs(MAX_STEPS),
       abortSignal: input.signal,

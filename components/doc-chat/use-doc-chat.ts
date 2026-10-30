@@ -20,6 +20,11 @@ export interface DocChat {
   /** False until this document's list has answered; an empty menu says "loading". */
   ready: boolean;
   activeId: string | null;
+  /**
+   * The id minted by this tab's last "new chat" or send. It has never been
+   * stored, so the panel must not spend a round trip asking the server for it.
+   */
+  freshId: string | null;
   open: boolean;
   /** A question typed into the document's composer, waiting for the panel to mount. */
   pending: PendingMessage | null;
@@ -54,6 +59,7 @@ export function useDocChat(docId: string): DocChat {
   // source of truth on the way in, and state is the source of truth afterwards.
   const fromUrl = params.get(DOC_CHAT_PARAM);
   const [activeId, setActiveId] = useState<string | null>(fromUrl);
+  const [freshId, setFreshId] = useState<string | null>(null);
   const [open, setOpen] = useState(Boolean(fromUrl));
   const [pending, setPending] = useState<PendingMessage | null>(null);
 
@@ -74,18 +80,23 @@ export function useDocChat(docId: string): DocChat {
   const startChat = useCallback((text: string) => {
     const id = newChatId();
     setActiveId(id);
+    setFreshId(id);
     setOpen(true);
     setPending({ id, text });
   }, []);
 
   const newChat = useCallback(() => {
-    setActiveId(newChatId());
+    const id = newChatId();
+    setActiveId(id);
+    setFreshId(id);
     setOpen(true);
     setPending(null);
   }, []);
 
   const openChat = useCallback((id: string) => {
     setActiveId(id);
+    // A stored conversation: the panel has to hydrate it before it can answer.
+    setFreshId(null);
     setOpen(true);
     setPending(null);
   }, []);
@@ -107,6 +118,7 @@ export function useDocChat(docId: string): DocChat {
       if (activeId === id) {
         setOpen(false);
         setActiveId(null);
+        setFreshId(null);
       }
     },
     [activeId],
@@ -116,6 +128,7 @@ export function useDocChat(docId: string): DocChat {
     chats,
     ready,
     activeId,
+    freshId,
     open,
     pending,
     startChat,

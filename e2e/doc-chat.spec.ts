@@ -40,6 +40,49 @@ test.describe("document chat", () => {
     await expect(page).toHaveURL(/[?&]chat=/);
   });
 
+  test("a new question reaches the panel before the page pin does", async ({ page }) => {
+    // A first message into a freshly minted chat used to wait for two round
+    // trips — `GET /api/chats/:id` (which can only 404) and the page pin —
+    // before the bubble or the stop button appeared.
+    const hydrated: string[] = [];
+    page.on("request", (request) => {
+      const path = new URL(request.url()).pathname;
+      if (request.method() === "GET" && /^\/api\/chats\/[^/]+$/.test(path)) {
+        hydrated.push(path);
+      }
+    });
+
+    let releasePin!: () => void;
+    let pinSeen!: () => void;
+    const pinStarted = new Promise<void>((resolve) => {
+      pinSeen = resolve;
+    });
+    await page.route(/\/api\/docs\/pi-mock-1\/pages\?from=1&to=1$/, async (route) => {
+      pinSeen();
+      await new Promise<void>((release) => {
+        releasePin = release;
+      });
+      await route.continue();
+    });
+
+    await page.goto("/doc/pi-mock-1");
+    await page.getByLabel("Ask about this document").fill("Show me this page.");
+    await page.getByLabel("Send question").click();
+
+    const panel = page.getByRole("complementary", { name: "Document chat" });
+    await expect(panel).toContainText("Show me this page.");
+    await expect(panel.getByLabel("Stop generating")).toBeVisible();
+
+    // Prove the pin really was the thing in flight while that assertion passed.
+    await pinStarted;
+    releasePin();
+
+    await expect(panel.getByRole("button", { name: /^Citation 1:/ })).toBeVisible({
+      timeout: 30_000,
+    });
+    expect(hydrated).toEqual([]);
+  });
+
   test("a reload reopens the chat in the panel", async ({ page }) => {
     const question = "Does this reader keep its chat?";
 
@@ -131,7 +174,7 @@ test.describe("document chat", () => {
     });
   });
 
-  test("the chat panel resizes from the keyboard and remembers it", async ({ page }) => {
+  test("the chat panel resizes by pointer or keyboard and remembers it", async ({ page }) => {
     const panel = await askInReader(page, "Resize this panel, please.");
 
     // At the default width the tree still has room; widening the panel is what
@@ -140,10 +183,26 @@ test.describe("document chat", () => {
     const handle = page.getByRole("separator", { name: "Resize chat panel" });
     const before = Math.round((await panel.boundingBox())!.width);
 
+    // The grip must sit on the panel's edge. It used to be positioned against
+    // the app shell instead (the panel was `static`), so dragging the visible
+    // edge did nothing while the keyboard path still passed.
+    const panelBox = (await panel.boundingBox())!;
+    const handleBox = (await handle.boundingBox())!;
+    expect(Math.abs(handleBox.x - panelBox.x)).toBeLessThanOrEqual(1);
+
+    const startX = handleBox.x + handleBox.width / 2;
+    await page.mouse.move(startX, handleBox.y + 80);
+    await page.mouse.down();
+    await page.mouse.move(startX - 60, handleBox.y + 80, { steps: 5 });
+    await page.mouse.up();
+
+    const dragged = before + 60;
+    await expect.poll(async () => Math.round((await panel.boundingBox())!.width)).toBe(dragged);
+
     await handle.focus();
     for (let press = 0; press < 5; press += 1) await page.keyboard.press("ArrowLeft");
 
-    const wider = before + 80;
+    const wider = dragged + 80;
     await expect.poll(async () => Math.round((await panel.boundingBox())!.width)).toBe(wider);
     await expect(handle).toHaveAttribute("aria-valuenow", String(wider));
     await expect(page.getByText("Tree index")).toHaveCount(0);
