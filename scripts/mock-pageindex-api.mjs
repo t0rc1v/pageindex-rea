@@ -61,7 +61,7 @@ const pages = [
   {
     page_index: 1,
     markdown:
-      "# Financial Highlights\n\nRevenue grew **12%** to $4.2bn, with every segment ahead of plan.\n\n| Segment | 2023 | 2024 |\n| --- | --- | --- |\n| Cloud | 1.1 | 1.6 |\n| Devices | 2.6 | 2.6 |\n\nOperating margin held at 18%, even with the step-up in R&D.\n\n![Figure 1](img-1.jpeg)",
+      "# Financial Highlights\n\nRevenue grew **12%** to $4.2bn, with every segment ahead of plan.\n\n| Segment | 2023 | 2024 |\n| --- | --- | --- |\n| Cloud | 1.1 | 1.6 |\n| Devices | 2.6 | 2.6 |\n\nOperating margin held at 18%, even with the step-up in R&D.\n\nInvertibility: \\(A\\) is singular exactly when \\(\\det A=0\\).\n\n\\[\\det(AB)=\\det(A)\\det(B).\\]\n\n1. **Singularity**\n   \\[\n   \\det(A)=0\n   \\]\n\n2. **Row operations**\n   - Multiplying a row by \\(c\\) multiplies the determinant by \\(c\\).\n\n![Figure 1](img-1.jpeg)",
     images: ["BASE64-IMAGE-1"],
   },
   {

@@ -5,6 +5,8 @@ import { Geist, Geist_Mono, Source_Serif_4 } from "next/font/google";
 
 import { AppProviders } from "@/components/providers";
 import { ConfirmProvider } from "@/components/ui/confirm";
+// KaTeX's metrics and font faces, before our own sheet so `.md-body` wins.
+import "katex/dist/katex.min.css";
 import "./globals.css";
 
 const geistSans = Geist({

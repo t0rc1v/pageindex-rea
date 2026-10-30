@@ -222,6 +222,7 @@ Legend: **✔ parity** · **◐ partial** · **✗ missing**
 | **Edit message → re-run** | ✔ | previous wording + answer kept behind `‹ 2/3 ›` |
 | **Export answer .md / .docx / .pdf** | ✔ | |
 | Mermaid + table/image copy & download | ✔ | |
+| **LaTeX math** (`$…$`, `$$…$$`, `\(…\)`, `\[…\]`) | ✔ | KaTeX; currency `$` is escaped, not parsed |
 | Scroll-to-bottom affordance | ✔ | |
 | Stop generation | ✔ | |
 | Share chat / read-only view | ✗ | |
