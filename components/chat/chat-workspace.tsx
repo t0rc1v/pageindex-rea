@@ -219,28 +219,13 @@ export function ChatWorkspace({ chatId, initialDocs }: { chatId?: string; initia
                   ))}
                 </div>
               )}
-              <textarea
-                ref={attach}
-                value={draft}
-                onChange={onChange}
-                onKeyDown={onKeyDown}
-                rows={1}
-                placeholder={
-                  chat.loading
-                    ? "Opening conversation…"
-                    : chat.busy
-                      ? "AI is thinking…"
-                      : "Ask a question…"
-                }
-                className="block max-h-44 min-h-[95px] w-full resize-none bg-transparent px-3.5 pt-3 text-[13.5px] leading-relaxed text-ink outline-none placeholder:text-ink-muted/70"
-              />
-              <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-1">
-                <div className="relative flex min-w-0 items-center gap-1.5">
+              <div className="flex items-end gap-1.5 px-2 py-1.5">
+                <div className="relative mb-0.5 flex min-w-0 items-center gap-1">
                   <button
                     type="button"
                     onClick={() => setPickerOpen((value) => !value)}
                     aria-expanded={pickerOpen}
-                    className="flex min-w-0 max-w-[240px] cursor-pointer items-center gap-1.5 rounded-lg border border-line px-2 py-1 text-[11.5px] text-ink-muted transition-colors hover:border-ink/25 hover:text-ink"
+                    className="flex min-w-0 max-w-[150px] cursor-pointer items-center gap-1.5 rounded-md bg-paper px-1.5 py-1.5 text-[11px] text-ink-muted transition-colors hover:text-ink sm:max-w-[240px]"
                   >
                     <Plus className="size-3.5 shrink-0" aria-hidden />
                     <span className="truncate">{scopeLabel}</span>
@@ -264,28 +249,42 @@ export function ChatWorkspace({ chatId, initialDocs }: { chatId?: string; initia
                   )}
                 </div>
 
-                <div className="flex shrink-0 items-center gap-1.5">
-                  {chat.busy ? (
-                    <button
-                      type="button"
-                      onClick={chat.stop}
-                      aria-label="Stop generating"
-                      className="grid size-9 cursor-pointer place-items-center rounded-full border border-line text-ink transition-colors hover:bg-paper"
-                    >
-                      <span className="size-2.5 rounded-sm bg-ink" aria-hidden />
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={submitDraft}
-                      disabled={!draft.trim() || chat.loading}
-                      aria-label="Send message"
-                      className="grid size-9 cursor-pointer place-items-center rounded-full bg-ink text-paper transition-opacity disabled:opacity-30"
-                    >
-                      <ArrowDown className="size-4 rotate-180" aria-hidden />
-                    </button>
-                  )}
-                </div>
+                <textarea
+                  ref={attach}
+                  value={draft}
+                  onChange={onChange}
+                  onKeyDown={onKeyDown}
+                  rows={1}
+                  placeholder={
+                    chat.loading
+                      ? "Opening conversation…"
+                      : chat.busy
+                        ? "AI is thinking…"
+                        : "Ask a question…"
+                  }
+                  className="max-h-24 min-h-[34px] min-w-0 flex-1 resize-none bg-transparent px-1 py-1.5 text-[13.5px] leading-relaxed text-ink outline-none placeholder:text-ink-muted/70"
+                />
+
+                {chat.busy ? (
+                  <button
+                    type="button"
+                    onClick={chat.stop}
+                    aria-label="Stop generating"
+                    className="mb-0.5 grid size-9 shrink-0 cursor-pointer place-items-center rounded-full border border-line text-ink transition-colors hover:bg-paper"
+                  >
+                    <span className="size-2.5 rounded-sm bg-ink" aria-hidden />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={submitDraft}
+                    disabled={!draft.trim() || chat.loading}
+                    aria-label="Send message"
+                    className="mb-0.5 grid size-9 shrink-0 cursor-pointer place-items-center rounded-full bg-ink text-paper transition-opacity disabled:opacity-30"
+                  >
+                    <ArrowDown className="size-4 rotate-180" aria-hidden />
+                  </button>
+                )}
               </div>
             </div>
             <p className="mt-1 hidden text-center text-[10px] text-ink-muted/70 sm:block">

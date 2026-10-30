@@ -3,16 +3,23 @@ import { PageIndexError, hasApiKey } from "../pageindex/client";
 /**
  * A request that was abandoned, rather than one that failed.
  *
- * `fetch` rejects with a `DOMException` on Node's undici, but other abort paths
- * hand back a plain `Error` that only carries the name — so match on the name.
+ * Abandonment arrives in several shapes: `fetch` rejects with a `DOMException`
+ * named `AbortError` on Node's undici, a socket that died mid-request surfaces
+ * as `Error: aborted` with `ECONNRESET`, and Next wraps some of them. All of
+ * them mean the same thing here — nobody is waiting for an answer.
  */
-function isAbort(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "name" in error &&
-    (error as { name?: unknown }).name === "AbortError"
-  );
+function isAbandoned(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+
+  const { name, code, message } = error as {
+    name?: unknown;
+    code?: unknown;
+    message?: unknown;
+  };
+
+  if (name === "AbortError") return true;
+  if (code === "ECONNRESET" || code === "ECONNABORTED") return true;
+  return typeof message === "string" && message.trim().toLowerCase() === "aborted";
 }
 
 const NO_STORE = {
@@ -62,7 +69,7 @@ export function errorResponse(error: unknown): Response {
    * replaced the route. Nothing went wrong and nobody is listening, so this is
    * neither an error to log nor a 500 to report; 499 is nginx's name for it.
    */
-  if (isAbort(error)) {
+  if (isAbandoned(error)) {
     return new Response(null, { status: 499, headers: NO_STORE });
   }
 

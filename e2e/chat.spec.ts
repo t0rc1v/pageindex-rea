@@ -188,7 +188,9 @@ test.describe("conversation surface", () => {
 
     // Once the marker is gone there is nothing to point at, so the card goes.
     // The expanded Sources block makes the transcript long enough for it to
-    // scroll clean off the top.
+    // scroll clean off the top — but only in a window shorter than the default,
+    // now that the composer is a single row.
+    await page.setViewportSize({ width: 1280, height: 560 });
     await page.getByLabel("Close citation preview").click();
     await page.getByRole("button", { name: /^Sources/ }).click();
     await open(chip);

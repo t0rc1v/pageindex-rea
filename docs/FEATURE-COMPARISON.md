@@ -582,7 +582,7 @@ withholds. Line references point at the commit that added it.
 | # | Item | Where |
 | --- | --- | --- |
 | 17 | Motion pass | `pi-enter` / `pi-sheet-in` in `globals.css`; panel + collapsible transitions |
-| 18 | Composer parity | 145 px card, 16 px radius, circular send/stop |
+| 18 | Composer parity | 145 px card, 16 px radius, circular send/stop *(the 145 px card is since superseded — see §9.12)* |
 | 19 | Tests | `vitest`: citations, streaming grammar, markdown export, **real jsPDF output**; `playwright`: steps → sources → branch → citation → appearance |
 
 **Decision items now switchable rather than forced**
@@ -649,6 +649,12 @@ from `?chat=`, panel composer continues the same chat, a citation turns the
 reader without opening a second panel, the phone sheet closing on a citation, and
 the menu's list/rename/delete. The hydration guard in `e2e/fixtures.ts` also
 covers a panel opened straight from a query parameter.
+
+All three composers share one shape now — a single row that grows to three lines,
+16 px radius, 36 px send/stop — with `/chat`'s document picker and its clear
+control inline at the left, and the context chips above. That drops the 145 px
+card §9.10 matched in the official app on purpose: one composer shape across
+three surfaces is worth more than parity in one of them.
 
 Deliberately not built, and why:
 

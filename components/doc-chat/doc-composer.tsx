@@ -74,7 +74,7 @@ export function DocComposer({
             type="submit"
             disabled={disabled || !value.trim()}
             aria-label="Send question"
-            className="mb-0.5 grid size-8 shrink-0 cursor-pointer place-items-center rounded-full bg-ink text-paper transition-opacity disabled:cursor-not-allowed disabled:opacity-30"
+            className="mb-0.5 grid size-9 shrink-0 cursor-pointer place-items-center rounded-full bg-ink text-paper transition-opacity disabled:cursor-not-allowed disabled:opacity-30"
           >
             <ArrowUp className="size-4" aria-hidden />
           </button>
