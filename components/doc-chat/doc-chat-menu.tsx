@@ -1,11 +1,19 @@
 "use client";
 
 import { MessageSquare, Pencil, Plus, Trash2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 
 import type { StoredChat } from "@/lib/chat-types";
 import { formatRelative } from "@/lib/format";
-import { Button, cn } from "@/components/ui-kit";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { DeleteChatDialog, RenameChatDialog } from "@/components/chat/chat-actions";
 
 /**
  * The document's Chat menu.
@@ -16,6 +24,9 @@ import { Button, cn } from "@/components/ui-kit";
  *
  * The same control sits in the reader header and in the panel header, so
  * switching conversations never means going back to the document first.
+ *
+ * The shadcn menu portals its content, which is what keeps the reader's copy out
+ * of the page and away from the sidebar when the header is tight.
  */
 export function DocChatMenu({
   chats,
@@ -37,72 +48,42 @@ export function DocChatMenu({
   align?: "start" | "end";
 }) {
   const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-
-    const onPointer = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-
-    window.addEventListener("pointerdown", onPointer);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("pointerdown", onPointer);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  const rename = (chat: StoredChat) => {
-    const next = window.prompt("Rename chat", chat.title);
-    if (next?.trim()) onRename(chat.id, next);
-  };
+  const [renameTarget, setRenameTarget] = useState<StoredChat | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<StoredChat | null>(null);
 
   return (
-    <div className="relative" ref={root}>
-      <Button
-        size="sm"
-        variant="secondary"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-      >
-        <MessageSquare className="size-3.5" aria-hidden />
-        <span className="ml-1.5 hidden sm:inline">Chat</span>
-        {chats.length > 0 && (
-          <span className="ml-1.5 min-w-[16px] rounded-full bg-paper px-1 text-center font-mono text-[10px] leading-4 text-ink-muted">
-            {chats.length}
-          </span>
-        )}
-      </Button>
-
-      {open && (
-        <div
-          role="menu"
-          aria-label="Chats in this document"
-          className={cn(
-            "absolute top-9 z-40 w-[19rem] max-w-[calc(100vw-2rem)] rounded-xl border border-line bg-surface p-1.5 shadow-xl",
-            align === "end" ? "right-0" : "left-0",
-          )}
+    <>
+      <DropdownMenu open={open} onOpenChange={setOpen}>
+        <DropdownMenuTrigger
+          render={<Button size="sm" variant="secondary" />}
         >
-          <button
-            type="button"
-            role="menuitem"
+          <MessageSquare className="size-3.5" aria-hidden />
+          <span className="ml-1.5 hidden sm:inline">Chat</span>
+          {chats.length > 0 && (
+            <span className="ml-1.5 min-w-[16px] rounded-full bg-paper px-1 text-center font-mono text-[10px] leading-4 text-ink-muted">
+              {chats.length}
+            </span>
+          )}
+        </DropdownMenuTrigger>
+
+        <DropdownMenuContent
+          aria-label="Chats in this document"
+          align={align}
+          sideOffset={6}
+          className="max-w-[calc(100vw-2rem)] p-1.5"
+          style={{ width: "19rem" }}
+        >
+          <DropdownMenuItem
             onClick={() => {
               setOpen(false);
               onNew();
             }}
-            className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12.5px] text-ink transition-colors hover:bg-paper"
           >
             <Plus className="size-3.5 text-ink-muted" aria-hidden />
             New chat
-          </button>
+          </DropdownMenuItem>
 
-          <div className="my-1 h-px bg-line" />
+          <DropdownMenuSeparator />
 
           {!ready ? (
             <p className="px-2 py-3 text-[12px] text-ink-muted">Loading chats…</p>
@@ -111,55 +92,78 @@ export function DocChatMenu({
               No chats in this document yet. Ask something below.
             </p>
           ) : (
-            <ul className="flex max-h-72 flex-col overflow-y-auto">
+            <div className="flex max-h-72 flex-col overflow-y-auto">
               {chats.map((chat) => (
-                <li key={chat.id} className="group/item relative">
-                  <button
-                    type="button"
-                    role="menuitem"
+                <div
+                  key={chat.id}
+                  className="group/item relative flex items-center rounded-lg"
+                >
+                  <DropdownMenuItem
                     onClick={() => {
                       setOpen(false);
                       onOpen(chat.id);
                     }}
-                    onDoubleClick={() => rename(chat)}
                     aria-current={chat.id === activeId ? "true" : undefined}
                     title={chat.title}
-                    className={cn(
-                      "flex w-full cursor-pointer items-center gap-2 rounded-lg py-1.5 pl-2 pr-8 text-left text-[12.5px] transition-colors hover:bg-paper",
-                      chat.id === activeId ? "bg-paper text-ink" : "text-ink",
-                    )}
+                    className="min-w-0 flex-1 py-1.5 pr-14 pl-2 text-[12.5px] aria-[current=true]:bg-paper"
                   >
                     <span className="truncate">{chat.title}</span>
                     <span className="ml-auto shrink-0 font-mono text-[9.5px] text-ink-muted">
                       {formatRelative(new Date(chat.updatedAt).toISOString())}
                     </span>
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`Rename ${chat.title}`}
-                    onClick={() => rename(chat)}
-                    className="absolute right-7 top-1/2 grid size-5 -translate-y-1/2 cursor-pointer place-items-center rounded text-ink-muted transition-opacity hover:text-ink sm:opacity-0 sm:group-hover/item:opacity-100 focus-visible:opacity-100"
-                  >
-                    <Pencil className="size-3" aria-hidden />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`Delete ${chat.title}`}
-                    onClick={() => onDelete(chat.id)}
-                    className="absolute right-1.5 top-1/2 grid size-5 -translate-y-1/2 cursor-pointer place-items-center rounded text-ink-muted transition-opacity hover:text-ink sm:opacity-0 sm:group-hover/item:opacity-100 focus-visible:opacity-100"
-                  >
-                    <Trash2 className="size-3" aria-hidden />
-                  </button>
-                </li>
+                  </DropdownMenuItem>
+
+                  <div className="absolute top-1/2 right-1.5 z-10 flex -translate-y-1/2 items-center gap-0.5 sm:opacity-0 sm:transition-opacity sm:group-hover/item:opacity-100 sm:focus-within:opacity-100">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label={`Rename ${chat.title}`}
+                      onClick={() => {
+                        setOpen(false);
+                        setRenameTarget(chat);
+                      }}
+                    >
+                      <Pencil className="size-3" aria-hidden />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label={`Delete ${chat.title}`}
+                      onClick={() => {
+                        setOpen(false);
+                        setDeleteTarget(chat);
+                      }}
+                    >
+                      <Trash2 className="size-3" aria-hidden />
+                    </Button>
+                  </div>
+                </div>
               ))}
-            </ul>
+            </div>
           )}
 
-          <p className="px-2 pb-0.5 pt-1 text-[10px] text-ink-muted/80">
+          <p className="px-2 pt-1 pb-0.5 text-[10px] text-ink-muted/80">
             Kept with this document, not in Recents.
           </p>
-        </div>
-      )}
-    </div>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <RenameChatDialog
+        chat={renameTarget}
+        onClose={() => setRenameTarget(null)}
+        onRename={(title) => {
+          if (renameTarget) onRename(renameTarget.id, title);
+        }}
+      />
+      <DeleteChatDialog
+        chat={deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onDelete={() => {
+          if (deleteTarget) onDelete(deleteTarget.id);
+        }}
+      />
+    </>
   );
 }

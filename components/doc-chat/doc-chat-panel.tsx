@@ -1,11 +1,12 @@
 "use client";
 
 import { ArrowUp, MessageSquare, Paperclip, Square, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { StoredChat } from "@/lib/chat-types";
 import type { Citation } from "@/lib/pageindex/types";
 import { fetchPageContext, type PageContext } from "@/lib/page-context";
+import { RenameChatDialog } from "@/components/chat/chat-actions";
 import { ChatTranscript } from "@/components/chat/chat-transcript";
 import { useChat } from "@/components/chat/use-chat";
 import { useComposer } from "@/components/chat/use-composer";
@@ -84,6 +85,7 @@ export function DocChatPanel({
   });
 
   const { addContext, removeContext, send } = chat;
+  const [renameOpen, setRenameOpen] = useState(false);
   const fired = useRef<string | null>(null);
   /** The one page this panel pinned last, so a new page replaces it. */
   const autoPin = useRef<{ docId: string; page: number } | null>(null);
@@ -214,10 +216,7 @@ export function DocChatPanel({
             <p
               className="truncate px-1 text-[12.5px] font-medium text-ink"
               title={title}
-              onDoubleClick={() => {
-                const next = window.prompt("Rename chat", title);
-                if (next?.trim()) onRename(chatId, next);
-              }}
+              onDoubleClick={() => setRenameOpen(true)}
             >
               {title}
             </p>
@@ -344,6 +343,12 @@ export function DocChatPanel({
             )}
           </div>
         </div>
+
+        <RenameChatDialog
+          chat={renameOpen ? { id: chatId, title } : null}
+          onClose={() => setRenameOpen(false)}
+          onRename={(next) => onRename(chatId, next)}
+        />
       </aside>
     </>
   );

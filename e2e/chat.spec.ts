@@ -308,6 +308,44 @@ test.describe("conversation surface", () => {
     await transcript.getByRole("button", { name: /^Sources/ }).click();
     await expect(page.getByText("Annual Report 2024.pdf").last()).toBeVisible();
   });
+
+  test("a chat can be renamed and deleted from the sidebar", async ({ page }) => {
+    const question = "Sidebar actions run here.";
+    await page.goto("/chat");
+    await page.getByPlaceholder(/Ask a question/).fill(question);
+    await page.getByLabel("Send message").click();
+    await expect(page.getByRole("button", { name: /^Citation 1:/ })).toBeVisible({
+      timeout: 30_000,
+    });
+
+    const sidebar = page.locator('[data-sidebar="sidebar"]').first();
+    const row = sidebar.getByRole("button", { name: new RegExp(`^${question}`) });
+    await expect(row).toBeVisible();
+
+    await row.hover();
+    await sidebar.getByRole("button", { name: `Actions for ${question}` }).click();
+    await page.getByRole("menu").getByRole("menuitem", { name: "Rename" }).click();
+
+    const titleInput = page.getByLabel("Chat title");
+    await expect(titleInput).toBeVisible();
+    await titleInput.fill("Sidebar rename");
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect(titleInput).toHaveCount(0);
+
+    const renamed = sidebar.getByRole("button", { name: /^Sidebar rename/ });
+    await expect(renamed).toBeVisible();
+
+    await renamed.hover();
+    await sidebar.getByRole("button", { name: "Actions for Sidebar rename" }).click();
+    await page.getByRole("menu").getByRole("menuitem", { name: "Delete" }).click();
+
+    const confirm = page.getByRole("alertdialog");
+    await expect(confirm).toBeVisible();
+    await confirm.getByRole("button", { name: "Delete" }).click();
+    await expect(confirm).toHaveCount(0);
+    await expect(renamed).toHaveCount(0);
+    await expect(page).toHaveURL(/\/chat$/);
+  });
 });
 
 /**
