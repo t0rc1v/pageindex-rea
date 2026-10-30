@@ -146,7 +146,7 @@ export function DocView({ docId }: { docId: string }) {
   return (
     <div className="flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-surface/80 px-4 py-3 backdrop-blur">
+        <header className="relative z-30 flex flex-wrap items-center justify-between gap-3 border-b border-line bg-surface/80 px-4 py-3 backdrop-blur">
           <div className="flex min-w-0 items-center gap-3">
             <Link
               href="/library"

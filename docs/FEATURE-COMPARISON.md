@@ -645,13 +645,13 @@ citation travels is inverted.
 | Panel width | Drag the grip on the docked panel's left edge, or focus it and press ←/→ (Home resets). 380–560 px, 420 by default, remembered per browser. Past 480 px the tree is what gives way, and it returns when the panel closes. | `hooks/use-panel-width.ts`, `panel-resize-handle.tsx` |
 | Storage | `chats.origin_doc_id` marks where a conversation was born — the PageIndex id, the same space `scopeDocs[].id` uses. Recents and a document's list are disjoint, and origin is written once: a later save cannot move a chat between them. | `lib/db/schema.ts`, `lib/server/chats.ts`, `lib/chat-store.ts` |
 
-Evidence: `e2e/doc-chat.spec.ts` — eleven specs covering composer → panel, the
+Evidence: `e2e/doc-chat.spec.ts` — twelve specs covering composer → panel, the
 first message landing before the page pin resolves, reload from `?chat=`, panel
 composer continues the same chat, pointer/keyboard panel resizing that also
-survives a reload, a citation turning the reader without opening a second panel,
-the phone sheet closing on a citation, and the menu's list/rename/delete. The
-hydration guard in `e2e/fixtures.ts` also covers a panel opened straight from a
-query parameter.
+survives a reload, the reader's chat menu painting above the page behind it, a
+citation turning the reader without opening a second panel, the phone sheet
+closing on a citation, and the menu's list/rename/delete. The hydration guard in
+`e2e/fixtures.ts` also covers a panel opened straight from a query parameter.
 
 All three composers share one shape now — a single row that grows to three lines,
 16 px radius, 36 px send/stop — with `/chat`'s document picker and its clear

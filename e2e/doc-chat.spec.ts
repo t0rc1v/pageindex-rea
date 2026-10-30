@@ -83,6 +83,49 @@ test.describe("document chat", () => {
     expect(hydrated).toEqual([]);
   });
 
+  test("the reader's chat menu paints above the page behind it", async ({ page }) => {
+    const panel = await askInReader(page, "Which section holds the risk factors?");
+    await expect(panel.getByRole("button", { name: /^Citation 1:/ })).toBeVisible({
+      timeout: 30_000,
+    });
+
+    // The reader header's own Chat button, not the panel's.
+    const readerMenuButton = page
+      .getByRole("button", { name: "Outline" })
+      .locator("..")
+      .getByRole("button", { name: /^Chat/ });
+    await readerMenuButton.click();
+
+    const menu = page.getByRole("menu", { name: "Chats in this document" });
+    await expect(menu).toBeVisible();
+
+    // The header's backdrop blur creates a stacking context. Without an explicit
+    // z-index on the header, the tree/page siblings painted over the open menu:
+    // page text, tree page numbers and the page nav buttons intersected it.
+    const covered = await menu.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      const failures: string[] = [];
+      for (let y = rect.top + 4; y < rect.bottom - 4; y += 8) {
+        for (let x = rect.left + 4; x < rect.right - 4; x += 8) {
+          const top = document.elementFromPoint(x, y);
+          if (top && element.contains(top)) continue;
+          failures.push(
+            `${top?.tagName ?? "none"} at ${Math.round(x)},${Math.round(y)}`,
+          );
+          if (failures.length >= 5) return failures;
+        }
+      }
+      return failures;
+    });
+    expect(covered).toEqual([]);
+
+    // A click at the left edge is what catches an overlapping page button: a
+    // center click could miss the narrow element that used to sit on top.
+    const before = page.url();
+    await menu.getByRole("menuitem", { name: "New chat" }).click({ position: { x: 12, y: 10 } });
+    await expect.poll(() => page.url()).not.toBe(before);
+  });
+
   test("a reload reopens the chat in the panel", async ({ page }) => {
     const question = "Does this reader keep its chat?";
 
