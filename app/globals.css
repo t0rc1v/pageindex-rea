@@ -314,6 +314,27 @@ body {
   max-width: 100%;
 }
 
+/* KaTeX brings its own metrics; only the block behaviour is ours. A display
+   formula wider than the reader column scrolls instead of widening the page. */
+.md-body .katex {
+  font-size: 1.05em;
+}
+
+.md-body .katex-display {
+  margin: 0.9em 0;
+  padding-bottom: 0.1em;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.md-body-compact .katex {
+  font-size: 1em;
+}
+
+.md-body-compact .katex-display {
+  margin: 0.55em 0;
+}
+
 .md-body sup {
   font-size: 0.7em;
 }

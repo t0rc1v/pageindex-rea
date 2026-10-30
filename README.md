@@ -39,11 +39,12 @@ library.
 - **Message actions** — copy, **Download** (Markdown, Word `.docx`, PDF, or Print),
   Regenerate with a **branch control** that keeps the previous answer, thumbs, and
   edit-and-resend on a question. Tables copy as Markdown/TSV or download CSV/MD;
-  code blocks copy; **Mermaid diagrams** render and export as SVG/PNG/MMD; figures
+  code blocks copy; **Mermaid diagrams** render and export as SVG/PNG/MMD; LaTeX
+  math (`$…$`, `$$…$$`, `\(…\)`, `\[…\]`) renders through KaTeX; figures
   download or copy their link.
 - **Document reader** — the PageIndex tree as a navigable outline, page text as
-  markdown (tables, figures), rendered page images with block highlight, keyboard
-  paging.
+  markdown (tables, figures, math), rendered page images with block highlight,
+  keyboard paging.
 - **Library** — documents and workspace folders, drag-and-drop upload with
   per-file progress (PDF, Word, PowerPoint, CSV, Markdown, TXT, or a `.zip`
   bundle whose per-entry results are reported), content sniffing so a renamed

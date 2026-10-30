@@ -2,11 +2,14 @@
 
 import { createContext, useContext, useRef, useState, type ComponentProps } from "react";
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
+import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
 
 import { citationKey, tokenizeCitations } from "@/lib/citations";
 import { downloadFile } from "@/lib/chat-export";
 import { paragraphRendersBlock } from "@/lib/markdown-blocks";
+import { normalizeMath } from "@/lib/markdown-math";
 import type { Citation } from "@/lib/pageindex/types";
 import { CitationChip, type CitationPreviewHandler } from "./citation-chip";
 import { MermaidDiagram } from "./markdown-mermaid";
@@ -19,9 +22,11 @@ function isAbsoluteUrl(value: string): boolean {
 const CITE_PREFIX = "#pi-cite-";
 
 /**
- * OCR page content and answers are markdown. Three adjustments matter here:
+ * OCR pages and answers are markdown. Four adjustments matter here:
  *  - citation tags are swapped for inline links (`#pi-cite-N`) and rendered back
  *    as numbered chips, with the same source reusing its number;
+ *  - LaTeX is normalized (`lib/markdown-math.ts`) and rendered through KaTeX, so
+ *    `\(A\)` and `\[ … \]` stop leaking their delimiters as literal text;
  *  - embedded figures come back as bare image ids (e.g. `img-7.jpeg`), routed
  *    through the API's presigned-image endpoint;
  *  - links open in a new tab so a click never navigates the reader away.
@@ -37,7 +42,19 @@ const MarkdownScopeContext = createContext<{
   onPreview?: CitationPreviewHandler;
 }>({ citations: [] });
 
-const REMARK_PLUGINS = [remarkGfm];
+const REMARK_PLUGINS: ComponentProps<typeof ReactMarkdown>["remarkPlugins"] = [
+  remarkGfm,
+  // Single dollars are enabled because `normalizeMath` has already escaped the
+  // currency ones; leaving remark-math on its defaults without that pass turns
+  // "$5 … $10" into a formula.
+  [remarkMath, { singleDollarTextMath: true }],
+];
+
+const REHYPE_PLUGINS: ComponentProps<typeof ReactMarkdown>["rehypePlugins"] = [
+  // OCR is not a TeX compiler: an unbalanced `\left(` should print in red, not
+  // throw during render and take the whole page down with it.
+  [rehypeKatex, { throwOnError: false, strict: false, trust: false }],
+];
 
 type AnchorProps = ComponentProps<"a"> & ExtraProps;
 type ImageProps = ComponentProps<"img"> & ExtraProps;
@@ -123,7 +140,7 @@ export function Markdown({
   className?: string;
   compact?: boolean;
 }) {
-  const segments = tokenizeCitations(children);
+  const segments = tokenizeCitations(normalizeMath(children));
   const enrichedByKey = new Map((enriched ?? []).map((item) => [citationKey(item), item]));
   const citations: Citation[] = [];
   const numbered = new Map<string, number>();
@@ -144,7 +161,11 @@ export function Markdown({
   return (
     <div className={cn("md-body", compact && "md-body-compact", className)}>
       <MarkdownScopeContext.Provider value={{ docId, citations, onPreview: onCite }}>
-        <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>
+        <ReactMarkdown
+          remarkPlugins={REMARK_PLUGINS}
+          rehypePlugins={REHYPE_PLUGINS}
+          components={MARKDOWN_COMPONENTS}
+        >
           {prepared}
         </ReactMarkdown>
       </MarkdownScopeContext.Provider>

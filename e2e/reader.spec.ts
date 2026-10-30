@@ -21,6 +21,31 @@ test.describe("document reader", () => {
     await expect(page.getByRole("cell", { name: "Cloud" })).toBeVisible();
     await expect(page.getByRole("cell", { name: "1.6" })).toBeVisible();
 
+    // LaTeX from OCR renders as math. Markdown eats the backslash in `\(A\)`,
+    // so before KaTeX this line read "(A) is singular" — the formula became
+    // prose. Two inline pairs, a display formula, and a list item whose display
+    // math is indented to the item are on the page.
+    await expect(page.locator(".katex-error")).toHaveCount(0);
+    await expect(page.locator(".katex-mathml")).toHaveCount(6);
+
+    // The list's display formula must not swallow the next item: a closing `$$`
+    // emitted at column 0 escapes the list item and makes KaTeX parse the next
+    // bullets as formula source.
+    await expect(page.getByText("Multiplying a row by")).toBeVisible();
+
+    // KaTeX's stylesheet must load with it: without it the MathML fallback is
+    // visible next to the HTML glyphs, and display math is not a block.
+    const mathml = await page
+      .locator(".katex-mathml")
+      .first()
+      .evaluate((element) => getComputedStyle(element).position);
+    expect(mathml).toBe("absolute");
+    const display = await page
+      .locator(".katex-display")
+      .first()
+      .evaluate((element) => getComputedStyle(element).display);
+    expect(display).toBe("block");
+
     // And the figure is served through the presigned-image proxy, not upstream.
     const figure = page.getByRole("img", { name: "Figure 1" });
     await expect(figure).toBeVisible();
