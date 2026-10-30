@@ -2,12 +2,14 @@
 
 import { ChevronLeft, ChevronRight, Info, Paperclip, X } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { useFetch } from "@/lib/client/hooks";
 import type { BlockResponse, PageIndexDocument } from "@/lib/pageindex/types";
 import { Markdown } from "@/components/markdown";
 import { Skeleton, cn } from "@/components/ui-kit";
+import { PanelResizeHandle } from "@/components/panel-resize-handle";
+import { usePanelWidth } from "@/hooks/use-panel-width";
 import { HighlightBox } from "./citation-card";
 
 export interface OpenDoc {
@@ -26,12 +28,6 @@ interface PagesPayload {
 const WIDTH_KEY = "pageindex-reader/panel-width";
 const MIN_WIDTH = 360;
 const MAX_WIDTH = 1024;
-
-function readWidth(): number {
-  if (typeof window === "undefined") return 460;
-  const stored = Number(window.localStorage.getItem(WIDTH_KEY));
-  return Number.isFinite(stored) && stored >= MIN_WIDTH ? stored : 460;
-}
 
 /**
  * The document beside the conversation.
@@ -60,10 +56,14 @@ export function DocumentPanel({
   onAddPage?: (doc: OpenDoc) => void;
   className?: string;
 }) {
-  const [width, setWidth] = useState(readWidth);
+  const width = usePanelWidth({
+    storageKey: WIDTH_KEY,
+    min: MIN_WIDTH,
+    max: MAX_WIDTH,
+    initial: 460,
+  });
   const [mode, setMode] = useState<"page" | "text">("page");
   const [infoOpen, setInfoOpen] = useState(false);
-  const dragging = useRef(false);
 
   const doc = docs.find((item) => item.docId === activeId) ?? docs[0] ?? null;
   const docId = doc?.docId ?? null;
@@ -86,29 +86,6 @@ export function DocumentPanel({
   const highlight = block.data?.bbox ?? doc?.bbox;
   const pageText = content.data?.pages[0]?.markdown ?? "";
 
-  const startDrag = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    dragging.current = true;
-    const startX = event.clientX;
-    const startWidth = event.currentTarget.parentElement?.getBoundingClientRect().width ?? 460;
-    const onMove = (move: PointerEvent) => {
-      if (!dragging.current) return;
-      const next = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth - (move.clientX - startX)));
-      setWidth(next);
-    };
-    const onUp = () => {
-      dragging.current = false;
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      setWidth((value) => {
-        window.localStorage.setItem(WIDTH_KEY, String(Math.round(value)));
-        return value;
-      });
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-  }, []);
-
   const tabs = useMemo(
     () => docs.map((item) => ({ ...item, label: item.name.replace(/\.pdf$/i, "") })),
     [docs],
@@ -126,17 +103,19 @@ export function DocumentPanel({
         className={cn(
           "z-50 flex min-h-0 flex-col bg-surface",
           "fixed inset-x-0 bottom-0 top-8 rounded-t-2xl border border-line shadow-2xl",
-          "lg:static lg:z-auto lg:h-full lg:rounded-none lg:border-0 lg:border-l lg:shadow-none",
+          "relative lg:static lg:z-auto lg:h-full lg:w-[var(--panel-width)] lg:rounded-none lg:border-0 lg:border-l lg:shadow-none",
           className,
         )}
-        style={{ width: typeof window !== "undefined" && window.innerWidth >= 1024 ? width : undefined }}
+        style={width.style}
       >
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize document panel"
-          onPointerDown={startDrag}
-          className="absolute inset-y-0 left-0 hidden w-1 cursor-col-resize transition-colors hover:bg-brand/30 lg:block"
+        <PanelResizeHandle
+          label="Resize document panel"
+          width={width.width}
+          min={width.min}
+          max={width.max}
+          onPointerDown={width.onPointerDown}
+          onKeyDown={width.onKeyDown}
+          className="hidden lg:block"
         />
 
         <header className="flex shrink-0 items-center gap-1 border-b border-line px-2 py-1.5">

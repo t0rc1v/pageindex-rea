@@ -346,7 +346,7 @@ live Cloud API.
 | --- | --- |
 | P0-1 Inspectable work | `ToolStep` rows (icon + sentence + chevron, `pi-shimmer` while running) that expand into the real result — document outline as a title ↔ `Page N` table, or the returned pages fetched from `/api/docs/:id/pages`. `</>` opens **View raw input and output** with input/output JSON (`json-view.tsx`). |
 | P0-2 Message toolbar | Copy, **Download** (Markdown; Print → Save as PDF), **Regenerate**, timestamp; on a question: copy + **edit-and-resend** (`message-actions.tsx`, `lib/chat-export.ts`). |
-| P0-3 Document panel | One tab per document, pointer-resizable with clamped width persisted to localStorage, `Document info` popover, page image ↔ OCR text toggle, page nav, last page remembered per document; full-height bottom sheet under `lg` (`document-panel.tsx`). |
+| P0-3 Document panel | One tab per document, resizable by pointer or ←/→ with clamped width persisted to localStorage, `Document info` popover, page image ↔ OCR text toggle, page nav, last page remembered per document; full-height bottom sheet under `lg` (`document-panel.tsx`). |
 | P0-4 Sources | Hairline row → `N references · M documents`, grouped per document, numbered, page chips that open the preview, trailing `N refs` (`sources.tsx`). |
 | P0-6 Citation card | `Page N of M`, block-type pill (`Text block`, `Table`, `Image`, …), `Open page ↗` (320 px card, bottom sheet on phones). |
 | P1-7 Composer | Single card, `+ Select Documents` popover (search + multi-select + "whole library"), circular send/stop, `AI is thinking…` placeholder. |
@@ -642,9 +642,10 @@ citation travels is inverted.
 | Citation direction | Chip → preview → `Open page ↗` turns the reader under the panel. Below 1280 px the panel closes first, or it would cover the page it just opened. A citation from another document opens that document's reader at its page. | `components/doc-view.tsx` |
 | Page pinning | Every question asked from the reader attaches the page on screen as an already-open page. Additive, not a filter — the document stays in scope, so answers can still cite anywhere. A new page replaces the previous automatic pin, and removing the chip retracts it until the reader turns the page. | `lib/page-context.ts`, `doc-chat-panel.tsx` |
 | Address bar | `?chat=` names the open conversation; `page` and `block` keep working on the same URL, and each writer preserves the others' parameters. | `use-doc-chat.ts` |
+| Panel width | Drag the grip on the docked panel's left edge, or focus it and press ←/→ (Home resets). 380–560 px, 420 by default, remembered per browser. Past 480 px the tree is what gives way, and it returns when the panel closes. | `hooks/use-panel-width.ts`, `panel-resize-handle.tsx` |
 | Storage | `chats.origin_doc_id` marks where a conversation was born — the PageIndex id, the same space `scopeDocs[].id` uses. Recents and a document's list are disjoint, and origin is written once: a later save cannot move a chat between them. | `lib/db/schema.ts`, `lib/server/chats.ts`, `lib/chat-store.ts` |
 
-Evidence: `e2e/doc-chat.spec.ts` — eight specs covering composer → panel, reload
+Evidence: `e2e/doc-chat.spec.ts` — ten specs covering composer → panel, reload
 from `?chat=`, panel composer continues the same chat, a citation turns the
 reader without opening a second panel, the phone sheet closing on a citation, and
 the menu's list/rename/delete. The hydration guard in `e2e/fixtures.ts` also
@@ -656,8 +657,3 @@ control inline at the left, and the context chips above. That drops the 145 px
 card §9.10 matched in the official app on purpose: one composer shape across
 three surfaces is worth more than parity in one of them.
 
-Deliberately not built, and why:
-
-- **Resizable panel.** 420 px reads well, and the page renders that want width are
-  in the `/chat` document panel. A drag handle would also reopen the "does tree +
-  page + panel still fit at 1280 px" question mid-drag, for a cosmetic control.

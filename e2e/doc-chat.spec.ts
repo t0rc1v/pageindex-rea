@@ -131,6 +131,29 @@ test.describe("document chat", () => {
     });
   });
 
+  test("the chat panel resizes from the keyboard and remembers it", async ({ page }) => {
+    const panel = await askInReader(page, "Resize this panel, please.");
+
+    // At the default width the tree still has room; widening the panel is what
+    // makes it step aside.
+    await expect(page.getByText("Tree index")).toBeVisible();
+    const handle = page.getByRole("separator", { name: "Resize chat panel" });
+    const before = Math.round((await panel.boundingBox())!.width);
+
+    await handle.focus();
+    for (let press = 0; press < 5; press += 1) await page.keyboard.press("ArrowLeft");
+
+    const wider = before + 80;
+    await expect.poll(async () => Math.round((await panel.boundingBox())!.width)).toBe(wider);
+    await expect(handle).toHaveAttribute("aria-valuenow", String(wider));
+    await expect(page.getByText("Tree index")).toHaveCount(0);
+
+    // The width is a preference, so it survives the reload that reopens the chat.
+    await page.reload();
+    const reopened = page.getByRole("complementary", { name: "Document chat" });
+    await expect.poll(async () => Math.round((await reopened.boundingBox())!.width)).toBe(wider);
+  });
+
   test("the chat menu lists, renames and deletes this document's chats", async ({ page }) => {
     const question = "Keep this chat in the menu.";
     const panel = await askInReader(page, question);
