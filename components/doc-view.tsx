@@ -146,7 +146,7 @@ export function DocView({ docId }: { docId: string }) {
   return (
     <div className="flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="relative z-30 flex flex-wrap items-center justify-between gap-3 border-b border-line bg-surface/80 px-4 py-3 backdrop-blur">
+        <header className="relative z-30 flex items-center justify-between gap-3 border-b border-line bg-surface/80 px-4 py-3 backdrop-blur">
           <div className="flex min-w-0 items-center gap-3">
             <Link
               href="/library"
@@ -156,8 +156,8 @@ export function DocView({ docId }: { docId: string }) {
               ←
             </Link>
             <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h1 className="truncate font-serif text-[17px] leading-tight text-ink">
+              <div className="flex min-w-0 items-center gap-2">
+                <h1 className="min-w-0 truncate font-serif text-[17px] leading-tight text-ink">
                   {metadata.data?.name ?? (metadata.loading ? "Loading…" : docId)}
                 </h1>
                 {metadata.data && <StatusBadge status={metadata.data.status} />}
@@ -176,7 +176,7 @@ export function DocView({ docId }: { docId: string }) {
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex shrink-0 items-center gap-1.5">
             <DocChatMenu
               chats={docChats}
               ready={docChatsReady}

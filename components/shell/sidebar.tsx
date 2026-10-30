@@ -7,16 +7,21 @@ import {
   LayoutGrid,
   MessageSquare,
   Settings,
-  Trash2,
 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import { useFetch, useLocalFlag } from "@/lib/client/hooks";
 import { useChats } from "@/lib/client/use-chats";
 import { deleteChat, renameChat } from "@/lib/chat-store";
+import type { StoredChat } from "@/lib/chat-types";
 import { formatRelative } from "@/lib/format";
 import type { DocumentListResponse } from "@/lib/pageindex/types";
+import {
+  ChatActionsMenu,
+  DeleteChatDialog,
+  RenameChatDialog,
+} from "@/components/chat/chat-actions";
 import {
   Sidebar,
   SidebarContent,
@@ -47,6 +52,8 @@ export function AppSidebar() {
   const chats = useChats();
   const docs = useFetch<DocumentListResponse>("/api/docs?limit=200");
   const [recentsOpen, setRecentsOpen] = useLocalFlag(RECENTS_KEY, true);
+  const [renameTarget, setRenameTarget] = useState<StoredChat | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<StoredChat | null>(null);
 
   const usage = useMemo(() => {
     const list = docs.data?.documents ?? [];
@@ -129,26 +136,23 @@ export function AppSidebar() {
                         tooltip={chat.title}
                         isActive={pathname === `/chat/${chat.id}`}
                         onClick={() => router.push(`/chat/${chat.id}`)}
-                        onDoubleClick={() => {
-                          const next = window.prompt("Rename chat", chat.title);
-                          if (next) renameChat(chat.id, next);
-                        }}
                       >
                         <span className="truncate">{chat.title}</span>
                         <span className="ml-auto shrink-0 font-mono text-[9px] text-ink-muted group-data-[collapsible=icon]:hidden">
                           {formatRelative(new Date(chat.updatedAt).toISOString())}
                         </span>
                       </SidebarMenuButton>
-                      <SidebarMenuAction
-                        showOnHover
-                        aria-label="Delete chat"
-                        onClick={() => {
-                          deleteChat(chat.id);
-                          if (pathname === `/chat/${chat.id}`) router.push("/chat");
-                        }}
-                      >
-                        <Trash2 />
-                      </SidebarMenuAction>
+                      <ChatActionsMenu
+                        chat={chat}
+                        onRename={() => setRenameTarget(chat)}
+                        onDelete={() => setDeleteTarget(chat)}
+                        trigger={
+                          <SidebarMenuAction
+                            showOnHover
+                            aria-label={`Actions for ${chat.title}`}
+                          />
+                        }
+                      />
                     </SidebarMenuItem>
                   ))}
                 </SidebarMenu>
@@ -207,6 +211,23 @@ export function AppSidebar() {
       </SidebarFooter>
 
       <SidebarRail />
+
+      <RenameChatDialog
+        chat={renameTarget}
+        onClose={() => setRenameTarget(null)}
+        onRename={(title) => {
+          if (renameTarget) renameChat(renameTarget.id, title);
+        }}
+      />
+      <DeleteChatDialog
+        chat={deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onDelete={() => {
+          if (!deleteTarget) return;
+          deleteChat(deleteTarget.id);
+          if (pathname === `/chat/${deleteTarget.id}`) router.push("/chat");
+        }}
+      />
     </Sidebar>
   );
 }

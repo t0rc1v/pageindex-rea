@@ -99,9 +99,17 @@ test.describe("document chat", () => {
     const menu = page.getByRole("menu", { name: "Chats in this document" });
     await expect(menu).toBeVisible();
 
-    // The header's backdrop blur creates a stacking context. Without an explicit
-    // z-index on the header, the tree/page siblings painted over the open menu:
-    // page text, tree page numbers and the page nav buttons intersected it.
+    // The old absolute popup was right-aligned to a Chat button that could wrap
+    // below the title, sending the menu left under the sidebar. The header now
+    // keeps its actions on one row and the shadcn menu portals with collision,
+    // so the popup has to stay in the content column and inside the viewport.
+    const sidebarBox = (await page.locator('[data-sidebar="sidebar"]').first().boundingBox())!;
+    const menuBox = (await menu.boundingBox())!;
+    const viewport = page.viewportSize()!;
+    expect(menuBox.x).toBeGreaterThanOrEqual(sidebarBox.x + sidebarBox.width - 1);
+    expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(viewport.width - 8);
+
+    // Page text, tree page numbers and page nav buttons used to intersect it.
     const covered = await menu.evaluate((element) => {
       const rect = element.getBoundingClientRect();
       const failures: string[] = [];
@@ -263,16 +271,32 @@ test.describe("document chat", () => {
 
     // The reader's menu, not the panel's, so closing first keeps it unambiguous.
     await panel.getByLabel("Close chat").click();
-    await page.getByRole("button", { name: /^Chat/ }).click();
 
-    const menu = page.getByRole("menu", { name: "Chats in this document" });
+    const openMenu = async () => {
+      await page.getByRole("button", { name: /^Chat/ }).click();
+      return page.getByRole("menu", { name: "Chats in this document" });
+    };
+
+    let menu = await openMenu();
     await expect(menu.getByRole("menuitem", { name: new RegExp(question) })).toBeVisible();
 
-    page.once("dialog", (dialog) => dialog.accept("Risk review"));
     await menu.getByLabel(`Rename ${question}`).click();
+    const titleInput = page.getByLabel("Chat title");
+    await expect(titleInput).toBeVisible();
+    await titleInput.fill("Risk review");
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect(titleInput).toHaveCount(0);
+
+    menu = await openMenu();
     await expect(menu.getByRole("menuitem", { name: /Risk review/ })).toBeVisible();
 
     await menu.getByLabel(/^Delete Risk review/).click();
+    const confirm = page.getByRole("alertdialog");
+    await expect(confirm).toBeVisible();
+    await confirm.getByRole("button", { name: "Delete" }).click();
+    await expect(confirm).toHaveCount(0);
+
+    menu = await openMenu();
     await expect(menu.getByRole("menuitem", { name: /Risk review/ })).toHaveCount(0);
   });
 });
