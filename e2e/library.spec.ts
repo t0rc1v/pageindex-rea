@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { type Page } from "@playwright/test";
 
 import { expect, test } from "./fixtures";
@@ -59,6 +61,43 @@ test.describe("workspace folders", () => {
     expect(removed.status()).toBe(404);
   });
 
+  test("folders can be renamed and deleted from the workspace panel", async ({ page }) => {
+    const name = `E2E Rename ${Date.now()}`;
+    const renamed = `${name} renamed`;
+
+    const created = await page.request.post("/api/folders", { data: { name } });
+    expect(created.status(), await created.text()).toBe(200);
+    const folder = (await created.json()) as { id: string };
+
+    try {
+      await page.goto("/library");
+
+      await expect(page.getByRole("button", { name: `Open ${name}` })).toBeVisible();
+
+      await page.getByRole("button", { name: `Actions for ${name}` }).click();
+      await page.getByRole("menuitem", { name: "Rename" }).click();
+      await page.getByLabel("Folder name").fill(renamed);
+      await page.getByRole("button", { name: "Save", exact: true }).click();
+
+      await expect(page.getByRole("button", { name: `Open ${renamed}` })).toBeVisible();
+
+      await page.getByRole("button", { name: `Actions for ${renamed}` }).click();
+      await page.getByRole("menuitem", { name: "Delete" }).click();
+
+      const dialog = page.getByRole("alertdialog");
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole("button", { name: "Delete folder" }).click();
+
+      await expect(page.getByRole("button", { name: `Open ${renamed}` })).toHaveCount(0);
+
+      const listed = await page.request.get("/api/folders");
+      const { folders } = (await listed.json()) as { folders: Array<{ id: string }> };
+      expect(folders.map((item) => item.id)).not.toContain(folder.id);
+    } finally {
+      await page.request.delete(`/api/folders/${folder.id}`);
+    }
+  });
+
   test("the library does not page through upstream documents", async ({ page }) => {
     // The mock lists two documents; only the registered one may appear, and the
     // total must come from the registry rather than the upstream page size.
@@ -90,6 +129,102 @@ async function assertFolderIsolation(page: Page, folder: { id: string }) {
     "Annual Report 2024.pdf",
   );
 }
+
+test.describe("mobile library", () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+  test("the workspaces drawer is reachable from the header", async ({ page }) => {
+    await page.goto("/library");
+
+    await page.getByRole("button", { name: "Open workspaces" }).click();
+
+    const sheet = page.getByRole("dialog");
+    await expect(sheet).toBeVisible();
+    await expect(sheet.getByRole("button", { name: "All documents" })).toBeVisible();
+
+    await sheet.getByRole("button", { name: "Unfiled" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+  });
+});
+
+test.describe("destructive confirmations", () => {
+  // Cancel only: other library tests need the fixture document, and the shared
+  // ConfirmProvider's true path is covered by the conversation clear below.
+  test("document delete asks first, and Cancel keeps the document", async ({ page }) => {
+    const name = "Annual Report 2024.pdf";
+
+    await page.goto("/library");
+    const card = page.getByRole("main").getByText(name).first();
+    await expect(card).toBeVisible();
+    await card.hover();
+
+    await page.getByRole("button", { name: "Delete document" }).first().click();
+
+    const dialog = page.getByRole("alertdialog");
+    await expect(dialog).toBeVisible();
+    await expect(
+      dialog.getByRole("heading", { name: `Delete “${name}”?` }),
+    ).toBeVisible();
+
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(dialog).toHaveCount(0);
+
+    // The confirm never resolved true, so the registry still owns the document.
+    const listed = await page.request.get("/api/docs?limit=200");
+    const body = (await listed.json()) as { documents: Array<{ id: string }> };
+    expect(body.documents.map((document) => document.id)).toContain("pi-mock-1");
+  });
+
+  // Deleting every chat is safe here: global.setup clears Recents before each
+  // run, and no later spec depends on an earlier test's conversation.
+  test("clearing conversations asks first, then clears them", async ({ page }) => {
+    const chatId = randomUUID();
+    const created = await page.request.put(`/api/chats/${chatId}`, {
+      data: {
+        title: "Confirmation check",
+        createdAt: Date.now(),
+        scopeDocs: [],
+        turns: [],
+      },
+    });
+    expect(created.status(), await created.text()).toBe(204);
+
+    await page.goto("/settings");
+
+    const clear = page.getByRole("button", { name: "Clear conversations" });
+    await expect(clear).toBeEnabled();
+    await clear.click();
+
+    const dialog = page.getByRole("alertdialog");
+    await expect(dialog).toBeVisible();
+    await expect(
+      dialog.getByRole("heading", { name: "Delete all conversations?" }),
+    ).toBeVisible();
+
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(dialog).toHaveCount(0);
+
+    const kept = await page.request.get("/api/chats");
+    const { chats: keptChats } = (await kept.json()) as { chats: Array<{ id: string }> };
+    expect(keptChats.map((chat) => chat.id)).toContain(chatId);
+
+    await clear.click();
+    await expect(dialog).toBeVisible();
+    const cleared = page.waitForResponse(
+      (response) =>
+        response.request().method() === "DELETE" &&
+        new URL(response.url()).pathname === "/api/chats",
+    );
+    await dialog.getByRole("button", { name: "Delete conversations" }).click();
+    const clearedResponse = await cleared;
+    expect(clearedResponse.ok(), `DELETE /api/chats → ${clearedResponse.status()}`).toBeTruthy();
+
+    await expect(page.getByText("No conversations yet.")).toBeVisible();
+    const listed = await page.request.get("/api/chats");
+    const { chats } = (await listed.json()) as { chats: Array<{ id: string }> };
+    expect(chats).toEqual([]);
+  });
+});
 
 test.describe("renaming", () => {
   const RENAMED = "Board Pack 2025.pdf";

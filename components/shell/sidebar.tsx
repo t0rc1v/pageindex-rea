@@ -10,9 +10,10 @@ import {
 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
+import { cn } from "cn";
 
 import { useFetch, useLocalFlag } from "@/lib/client/hooks";
-import { useChats } from "@/lib/client/use-chats";
+import { useChats, useChatsStatus } from "@/lib/client/use-chats";
 import { deleteChat, renameChat } from "@/lib/chat-store";
 import type { StoredChat } from "@/lib/chat-types";
 import { formatRelative } from "@/lib/format";
@@ -35,6 +36,7 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const RECENTS_KEY = "pageindex-reader/sidebar/recents-open";
 
@@ -50,6 +52,7 @@ export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const chats = useChats();
+  const chatsStatus = useChatsStatus();
   const docs = useFetch<DocumentListResponse>("/api/docs?limit=200");
   const [recentsOpen, setRecentsOpen] = useLocalFlag(RECENTS_KEY, true);
   const [renameTarget, setRenameTarget] = useState<StoredChat | null>(null);
@@ -124,9 +127,21 @@ export function AppSidebar() {
 
           {recentsOpen && (
             <SidebarGroupContent className="min-h-0 overflow-y-auto">
-              {chats.length === 0 ? (
+              {chatsStatus === "idle" || chatsStatus === "loading" ? (
+                <div
+                  aria-busy
+                  aria-label="Loading conversations"
+                  className="flex flex-col gap-1"
+                >
+                  {["w-3/4", "w-2/3", "w-1/2", "w-4/5", "w-3/5"].map((width) => (
+                    <div key={width} className="flex h-8 items-center px-2">
+                      <Skeleton className={cn("h-4", width)} />
+                    </div>
+                  ))}
+                </div>
+              ) : chats.length === 0 ? (
                 <p className="px-2 py-2 text-[11.5px] leading-relaxed text-ink-muted group-data-[collapsible=icon]:hidden">
-                  No chats yet.
+                  {chatsStatus === "error" ? "Could not load chats." : "No chats yet."}
                 </p>
               ) : (
                 <SidebarMenu>

@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
+import { FolderTree, PanelLeftOpen, Plus } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 
 import { ApiError, apiSend, apiUploadWithProgress } from "@/lib/client/api";
@@ -10,11 +12,16 @@ import { summarizeEntries, type UploadResult } from "@/lib/client/upload";
 import { formatRelative, initials, isPending } from "@/lib/format";
 import type {
   DocumentListResponse,
-  FolderListResponse,
   PageIndexDocument,
 } from "@/lib/pageindex/types";
 import { toast } from "sonner";
 
+import {
+  WorkspacesDrawer,
+  WorkspacesPanel,
+  WorkspacesRail,
+  type FolderFilter,
+} from "@/components/library/workspaces-panel";
 import { useConfirm } from "@/components/ui/confirm";
 import {
   Button,
@@ -27,16 +34,20 @@ import {
   cn,
 } from "./ui-kit";
 
-type FolderFilter = "all" | "root" | string;
-
 const noPendingDocuments = (data: DocumentListResponse) =>
   !data.documents.some((doc) => isPending(doc.status));
 
 export function LibraryView() {
   const router = useRouter();
   const confirm = useConfirm();
+  const queryClient = useQueryClient();
   const [view, setView] = useLocalFlag("pageindex-reader/library-view", false);
   const [folder, setFolder] = useState<FolderFilter>("all");
+  const [workspacesOpen, setWorkspacesOpen] = useLocalFlag(
+    "pageindex-reader/library/workspaces-open",
+    true,
+  );
+  const [workspacesDrawerOpen, setWorkspacesDrawerOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pendingUploads, setPendingUploads] = useState<
@@ -51,19 +62,20 @@ export function LibraryView() {
   const [renaming, setRenaming] = useState<PageIndexDocument | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [creatingFolder, setCreatingFolder] = useState(false);
-  const [folderName, setFolderName] = useState("");
-  const [folderError, setFolderError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const config = useFetch<{ configured: boolean; apiUrl: string }>("/api/config");
+  // The filtered query below cannot count the whole library, so the unfiltered
+  // total (and the workspace folder counts) come from this one-row probe.
+  const allDocs = useFetch<DocumentListResponse>("/api/docs?limit=1", {
+    staleTime: 60_000,
+  });
 
   const folderQuery = folder === "all" ? "" : `&folderId=${encodeURIComponent(folder)}`;
   const docs = useFetch<DocumentListResponse>(`/api/docs?limit=200${folderQuery}`, {
     refreshMs: 4000,
     stopWhen: noPendingDocuments,
   });
-  const folders = useFetch<FolderListResponse>("/api/folders");
 
   const documents = useMemo(() => docs.data?.documents ?? [], [docs.data]);
 
@@ -114,6 +126,8 @@ export function LibraryView() {
             ),
           );
           docs.reload();
+          allDocs.reload();
+          void queryClient.invalidateQueries({ queryKey: ["pageindex", "/api/folders"] });
           window.setTimeout(() => {
             setPendingUploads((current) => current.filter((item) => item.id !== id));
           }, 6000);
@@ -128,7 +142,7 @@ export function LibraryView() {
         }
       }
     },
-    [docs, folder],
+    [allDocs, docs, folder, queryClient],
   );
 
   const onPick = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -154,27 +168,12 @@ export function LibraryView() {
         return next;
       });
       docs.reload();
+      allDocs.reload();
+      void queryClient.invalidateQueries({ queryKey: ["pageindex", "/api/folders"] });
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Delete failed");
     } finally {
       setDeleting(null);
-    }
-  };
-
-  const createFolder = async () => {
-    const name = folderName.trim();
-    if (!name) return;
-    setFolderError(null);
-    try {
-      await apiSend("/api/folders", "POST", {
-        name,
-        ...(folder !== "all" && folder !== "root" ? { parentFolderId: folder } : {}),
-      });
-      setFolderName("");
-      setCreatingFolder(false);
-      folders.reload();
-    } catch (error) {
-      setFolderError(error instanceof ApiError ? error.message : "Could not create folder");
     }
   };
 
@@ -209,64 +208,102 @@ export function LibraryView() {
         if (files.length > 0) void upload(files);
       }}
     >
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3">
-        <div>
-          <h1 className="font-serif text-xl leading-tight text-ink">Library</h1>
-          <p className="text-[11px] text-ink-muted">
-            Documents indexed by PageIndex Cloud
-            {docs.data ? ` · ${docs.data.total} total` : ""}
-          </p>
-        </div>
+      <header className="shrink-0 border-b border-line px-3 py-3 sm:px-5">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <h1 className="font-serif text-xl leading-tight text-ink">Library</h1>
+            <p className="truncate text-[11px] text-ink-muted">
+              {allDocs.data
+                ? `${allDocs.data.total} ${allDocs.data.total === 1 ? "document" : "documents"}`
+                : "Documents indexed by PageIndex Cloud"}
+              {folder !== "all" && docs.data ? ` · ${docs.data.total} in view` : ""}
+            </p>
+          </div>
 
-        <div className="flex flex-1 items-center justify-end gap-2">
-          <label className="relative hidden sm:block">
+          <label className="relative order-last w-full sm:order-none sm:w-48 md:w-40 lg:w-44 xl:w-56">
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Filter documents…"
-              className="h-9 w-56 rounded-xl border border-line bg-surface pl-8 pr-3 text-[13px] text-ink outline-none placeholder:text-ink-muted/70 focus:border-ink/30"
+              aria-label="Filter documents"
+              className="h-9 w-full rounded-xl border border-line bg-surface pl-8 pr-3 text-[13px] text-ink outline-none placeholder:text-ink-muted/70 focus:border-ink/30"
             />
             <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-muted">
               ⌕
             </span>
           </label>
-          <div className="flex items-center rounded-xl border border-line bg-surface p-0.5">
-            {([
-              { key: false, label: "Grid view", icon: "▦" },
-              { key: true, label: "List view", icon: "☰" },
-            ] as const).map((option) => (
-              <button
-                key={String(option.key)}
-                type="button"
-                onClick={() => setView(option.key)}
-                aria-pressed={view === option.key}
-                aria-label={option.label}
-                title={option.label}
-                className={cn(
-                  "cursor-pointer rounded-lg px-2 py-1 text-[12px] transition-colors",
-                  view === option.key ? "bg-ink text-paper" : "text-ink-muted hover:text-ink",
-                )}
+
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant="secondary"
+              size="md"
+              className="px-2.5 lg:hidden"
+              onClick={() => setWorkspacesDrawerOpen(true)}
+              aria-label="Open workspaces"
+              title="Workspaces"
+            >
+              <FolderTree className="size-4" aria-hidden />
+              <span className="hidden sm:inline md:hidden">Workspaces</span>
+            </Button>
+
+            {!workspacesOpen && (
+              <Button
+                variant="secondary"
+                size="md"
+                className="hidden px-2.5 lg:inline-flex"
+                onClick={() => setWorkspacesOpen(true)}
+                aria-label="Show workspaces"
+                title="Show workspaces"
               >
-                {option.icon}
-              </button>
-            ))}
+                <PanelLeftOpen className="size-4" aria-hidden />
+                <span className="hidden xl:inline">Workspaces</span>
+              </Button>
+            )}
+
+            <div className="flex items-center rounded-xl border border-line bg-surface p-0.5">
+              {([
+                { key: false, label: "Grid view", icon: "▦" },
+                { key: true, label: "List view", icon: "☰" },
+              ] as const).map((option) => (
+                <button
+                  key={String(option.key)}
+                  type="button"
+                  onClick={() => setView(option.key)}
+                  aria-pressed={view === option.key}
+                  aria-label={option.label}
+                  title={option.label}
+                  className={cn(
+                    "grid size-7 cursor-pointer place-items-center rounded-lg text-[12px] transition-colors",
+                    view === option.key
+                      ? "bg-ink text-paper"
+                      : "text-ink-muted hover:text-ink",
+                  )}
+                >
+                  {option.icon}
+                </button>
+              ))}
+            </div>
+
+            <input
+              ref={inputRef}
+              type="file"
+              accept=".pdf,.docx,.doc,.pptx,.ppt,.csv,.md,.markdown,.txt,.zip"
+              multiple
+              onChange={onPick}
+              className="hidden"
+            />
+            <Button
+              variant="primary"
+              size="md"
+              className="px-2.5 sm:px-3"
+              disabled={busy}
+              onClick={() => inputRef.current?.click()}
+              aria-label="Add document"
+            >
+              {busy ? <Spinner className="size-3.5" /> : <Plus className="size-4" aria-hidden />}
+              <span className="hidden sm:inline md:hidden lg:inline">Add document</span>
+            </Button>
           </div>
-          <input
-            ref={inputRef}
-            type="file"
-            accept=".pdf,.docx,.doc,.pptx,.ppt,.csv,.md,.markdown,.txt,.zip"
-            multiple
-            onChange={onPick}
-            className="hidden"
-          />
-          <Button
-            variant="primary"
-            size="md"
-            disabled={busy}
-            onClick={() => inputRef.current?.click()}
-          >
-            {busy ? <Spinner className="size-3.5" /> : "+"} Add document
-          </Button>
         </div>
       </header>
 
@@ -288,74 +325,26 @@ export function LibraryView() {
         </div>
       )}
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[220px_minmax(0,1fr)]">
-        <aside className="hidden min-h-0 flex-col overflow-y-auto border-r border-line bg-surface/50 px-2 py-3 md:flex">
-          <p className="px-2 pb-2 text-[10px] font-medium uppercase tracking-[0.16em] text-ink-muted">
-            Workspaces
-          </p>
-          <FolderRow
-            active={folder === "all"}
-            label="All documents"
-            count={docs.data?.total}
-            onClick={() => setFolder("all")}
-          />
-          <FolderRow
-            active={folder === "root"}
-            label="Unfiled"
-            onClick={() => setFolder("root")}
-          />
-          {(folders.data?.folders ?? []).map((item) => (
-            <FolderRow
-              key={item.id}
-              active={folder === item.id}
-              label={item.name}
-              count={item.file_count}
-              onClick={() => setFolder(item.id)}
+      <div className="flex min-h-0 flex-1">
+        <div className="hidden min-h-0 shrink-0 lg:flex">
+          {workspacesOpen ? (
+            <WorkspacesPanel
+              active={folder}
+              allTotal={allDocs.data?.total}
+              onSelect={setFolder}
+              onCollapse={() => setWorkspacesOpen(false)}
+              className="w-56 border-r border-line"
             />
-          ))}
-
-          {creatingFolder ? (
-            <div className="mt-2 px-2">
-              <input
-                autoFocus
-                value={folderName}
-                onChange={(event) => setFolderName(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") void createFolder();
-                  if (event.key === "Escape") setCreatingFolder(false);
-                }}
-                placeholder="Folder name"
-                className="h-8 w-full rounded-lg border border-line bg-surface px-2 text-[12px] outline-none focus:border-ink/30"
-              />
-              {folderError && (
-                <p className="mt-1 text-[11px] leading-snug text-red-700">{folderError}</p>
-              )}
-              <div className="mt-1.5 flex gap-1">
-                <Button size="sm" variant="primary" onClick={() => void createFolder()}>
-                  Create
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => setCreatingFolder(false)}>
-                  Cancel
-                </Button>
-              </div>
-            </div>
           ) : (
-            <button
-              type="button"
-              onClick={() => setCreatingFolder(true)}
-              className="mt-2 cursor-pointer rounded-lg px-2 py-1.5 text-left text-[12px] text-ink-muted transition-colors hover:bg-ink/5 hover:text-ink"
-            >
-              + New folder
-            </button>
+            <WorkspacesRail
+              active={folder}
+              onSelect={setFolder}
+              onExpand={() => setWorkspacesOpen(true)}
+            />
           )}
+        </div>
 
-          <div className="mt-auto px-2 pt-4 text-[10px] leading-relaxed text-ink-muted/80">
-            PageIndex Cloud indexes documents into hierarchical trees, then answers
-            questions with page- and block-level citations.
-          </div>
-        </aside>
-
-        <section className="min-h-0 overflow-y-auto px-4 py-4">
+        <section className="min-h-0 flex-1 overflow-y-auto px-3 py-3 sm:px-4 sm:py-4">
           {pendingUploads.length > 0 && (
             <ul className="mb-3 flex flex-col gap-1.5">
               {pendingUploads.map((item) => (
@@ -423,7 +412,7 @@ export function LibraryView() {
           {docs.error ? (
             <ErrorPanel error={docs.error} onRetry={docs.reload} />
           ) : docs.loading && !docs.data ? (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
               {Array.from({ length: 6 }).map((_, index) => (
                 <Panel key={index} className="p-4">
                   <Skeleton className="h-4 w-2/3" />
@@ -457,7 +446,7 @@ export function LibraryView() {
               className={cn(
                 view
                   ? "flex flex-col gap-1.5"
-                  : "grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3",
+                  : "grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3",
               )}
             >
               {filtered.map((doc) => (
@@ -477,6 +466,14 @@ export function LibraryView() {
           )}
         </section>
       </div>
+
+      <WorkspacesDrawer
+        open={workspacesDrawerOpen}
+        onOpenChange={setWorkspacesDrawerOpen}
+        active={folder}
+        allTotal={allDocs.data?.total}
+        onSelect={setFolder}
+      />
 
       {renaming && (
         <RenameDialog
@@ -500,34 +497,6 @@ export function LibraryView() {
         </div>
       )}
     </div>
-  );
-}
-
-function FolderRow({
-  active,
-  label,
-  count,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  count?: number;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "flex cursor-pointer items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left text-[12.5px] transition-colors",
-        active ? "bg-brand-soft text-brand-deep" : "text-ink-muted hover:bg-ink/5 hover:text-ink",
-      )}
-    >
-      <span className="truncate">{label}</span>
-      {typeof count === "number" && (
-        <span className="shrink-0 font-mono text-[10px] opacity-60">{count}</span>
-      )}
-    </button>
   );
 }
 
@@ -589,7 +558,7 @@ function DocumentCard({
           onClick={onRename}
           aria-label="Rename document"
           title="Rename"
-          className="grid size-6 cursor-pointer place-items-center rounded-md text-ink-muted opacity-0 transition-opacity hover:bg-paper hover:text-ink group-hover:opacity-100"
+          className="grid size-6 cursor-pointer place-items-center rounded-md text-ink-muted opacity-0 transition-opacity hover:bg-paper hover:text-ink focus-visible:opacity-100 pointer-coarse:opacity-100 group-hover:opacity-100"
         >
           ✎
         </button>
@@ -598,7 +567,7 @@ function DocumentCard({
           onClick={onDelete}
           disabled={deleting}
           aria-label="Delete document"
-          className="grid size-6 cursor-pointer place-items-center rounded-md text-ink-muted opacity-0 transition-opacity hover:bg-red-50 hover:text-red-700 disabled:opacity-40 group-hover:opacity-100"
+          className="grid size-6 cursor-pointer place-items-center rounded-md text-ink-muted opacity-0 transition-opacity hover:bg-red-50 hover:text-red-700 focus-visible:opacity-100 pointer-coarse:opacity-100 disabled:opacity-40 group-hover:opacity-100"
         >
           {deleting ? <Spinner className="size-3" /> : "✕"}
         </button>
@@ -638,7 +607,7 @@ function DocumentCard({
             "mt-0.5 grid size-5 shrink-0 cursor-pointer place-items-center rounded-[5px] border text-[10px] transition-opacity",
             selected
               ? "border-brand bg-brand text-white opacity-100"
-              : "border-line bg-surface text-transparent opacity-0 group-hover:opacity-100",
+              : "border-line bg-surface text-transparent opacity-0 pointer-coarse:opacity-100 group-hover:opacity-100",
           )}
         >
           ✓
@@ -664,7 +633,7 @@ function DocumentCard({
             onClick={onRename}
             aria-label="Rename document"
             title="Rename"
-            className="grid size-6 cursor-pointer place-items-center rounded-md text-ink-muted opacity-0 transition-opacity hover:bg-paper hover:text-ink group-hover:opacity-100"
+            className="grid size-6 cursor-pointer place-items-center rounded-md text-ink-muted opacity-0 transition-opacity hover:bg-paper hover:text-ink focus-visible:opacity-100 pointer-coarse:opacity-100 group-hover:opacity-100"
           >
             ✎
           </button>
@@ -673,7 +642,7 @@ function DocumentCard({
             onClick={onDelete}
             disabled={deleting}
             aria-label="Delete document"
-            className="grid size-6 cursor-pointer place-items-center rounded-md text-ink-muted opacity-0 transition-opacity hover:bg-red-50 hover:text-red-700 disabled:opacity-40 group-hover:opacity-100"
+            className="grid size-6 cursor-pointer place-items-center rounded-md text-ink-muted opacity-0 transition-opacity hover:bg-red-50 hover:text-red-700 focus-visible:opacity-100 pointer-coarse:opacity-100 disabled:opacity-40 group-hover:opacity-100"
           >
             {deleting ? <Spinner className="size-3" /> : "✕"}
           </button>
